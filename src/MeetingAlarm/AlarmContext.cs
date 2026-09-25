@@ -1,4 +1,5 @@
 using Microsoft.Identity.Client;
+using System.Reflection;
 using Microsoft.Win32;
 using WinTimer = System.Windows.Forms.Timer;
 
@@ -49,7 +50,13 @@ sealed class AlarmContext : ApplicationContext
             ContextMenuStrip = menu,
             Visible = true,
         };
-        tray.DoubleClick += (_, _) => ToonKomende();
+        tray.MouseUp += (_, e) =>
+        {
+            // Linksklik opent hetzelfde menu als rechtsklik. NotifyIcon's eigen (private) ShowContextMenu zet het menu
+            // correct op de voorgrond, zodat het sluit bij klikken ernaast; menu.Show() alleen doet dat niet.
+            if (e.Button == MouseButtons.Left)
+                typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(tray, null);
+        };
 
         chatPopup.Gezien += Gezien;
         PasConfigToe();

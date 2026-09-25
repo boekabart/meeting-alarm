@@ -81,3 +81,12 @@ public class PlaatsingTests
     public void SchermNummer_uit_DeviceName(string deviceName, int? verwacht) =>
         Assert.Equal(verwacht, Plaatsing.SchermNummer(deviceName));
 }
+
+public class WinFormsTests
+{
+    // Linksklik op het tray-icoon leunt op deze private methode; faalt deze test na een .NET-update, dan werkt dat niet meer.
+    [Fact]
+    public void NotifyIcon_heeft_nog_ShowContextMenu() =>
+        Assert.NotNull(typeof(NotifyIcon).GetMethod("ShowContextMenu",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+}
