@@ -50,25 +50,25 @@ public class PlaatsingTests
     static readonly Rectangle Wa = new(0, 0, 1000, 800);
 
     [Fact]
-    public void RechtsOnder_stapelt_omhoog()
+    public void BottomRight_stapelt_omhoog()
     {
-        var p = Plaatsing.Bereken(Positie.RechtsOnder, Wa, [new Size(200, 100), new Size(200, 50)]);
+        var p = Plaatsing.Bereken(Position.BottomRight, Wa, [new Size(200, 100), new Size(200, 50)]);
 
         Assert.Equal([new Point(790, 690), new Point(790, 630)], p);
     }
 
     [Fact]
-    public void RechtsMidden_centreert_de_stapel_verticaal()
+    public void MiddleRight_centreert_de_stapel_verticaal()
     {
-        var p = Plaatsing.Bereken(Positie.RechtsMidden, Wa, [new Size(300, 100), new Size(300, 100)]);
+        var p = Plaatsing.Bereken(Position.MiddleRight, Wa, [new Size(300, 100), new Size(300, 100)]);
 
         Assert.Equal([new Point(690, 295), new Point(690, 405)], p);
     }
 
     [Fact]
-    public void LinksBoven_stapelt_omlaag()
+    public void TopLeft_stapelt_omlaag()
     {
-        var p = Plaatsing.Bereken(Positie.LinksBoven, Wa, [new Size(200, 100), new Size(200, 100)]);
+        var p = Plaatsing.Bereken(Position.TopLeft, Wa, [new Size(200, 100), new Size(200, 100)]);
 
         Assert.Equal([new Point(10, 10), new Point(10, 120)], p);
     }

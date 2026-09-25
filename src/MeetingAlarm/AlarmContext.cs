@@ -9,10 +9,11 @@ sealed class AlarmContext : ApplicationContext
     readonly WinTimer checkTimer;
     readonly WinTimer herlaadTimer = new() { Interval = 500 };   // debounce: editors schrijven vaak meerdere keren
     readonly FileSystemWatcher watcher;
-    readonly Dictionary<string, List<Meeting>> perAgenda = new();
-    readonly Dictionary<string, ToolStripMenuItem> statusItems = new();   // "agenda|Naam" / "teams|Naam"
-    readonly Dictionary<string, ToolStripMenuItem> loginItems = new();    // per job-naam
-    readonly HashSet<string> foutGemeld = new();
+    readonly Dictionary<CalendarConfig, List<Meeting>> perAgenda = new();
+    // Per config-object (niet per naam): twee agenda's mogen dezelfde naam hebben.
+    readonly Dictionary<object, ToolStripMenuItem> statusItems = new();
+    readonly Dictionary<TeamsConfig, ToolStripMenuItem> loginItems = new();
+    readonly HashSet<object> foutGemeld = new();
     readonly HashSet<string> getoond = new();
     readonly HashSet<string> autoInlogGeprobeerd = new();
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(30) };
@@ -76,15 +77,15 @@ sealed class AlarmContext : ApplicationContext
     /// <summary>Alles wat uit de config volgt en live mee moet veranderen.</summary>
     void PasConfigToe()
     {
-        MeetingPopup.Positie = cfg.MeetingPositie;
+        MeetingPopup.Positie = cfg.Meetings.Position;
         MeetingPopup.Herplaats();
-        chatPopup.Positie = cfg.ChatPositie;
-        chatPopup.KnipperSeconden = cfg.ChatKnipperSeconden;
-        chatPopup.Geluid = cfg.Geluid;
+        chatPopup.Positie = cfg.Chats.Position;
+        chatPopup.KnipperSeconden = cfg.Chats.FlashSeconds;
+        chatPopup.Geluid = cfg.Sound;
 
         var eigenaar = chatPopup.Handle;   // ouder voor het WAM-inlogvenster (tray-apps hebben geen eigen venster)
-        pollers = cfg.Agendas.Where(a => a.HeeftTeams)
-            .Select(a => new ChatPoller(a, cfg.ClientIdVoor(a), cfg.ChatTypes, chatState, () => eigenaar))
+        pollers = cfg.ActieveTeams
+            .Select(t => new ChatPoller(t, cfg.ClientIdVoor(t), cfg.Chats.ChatTypes, chatState, () => eigenaar))
             .ToList();
         BouwStatusItems();
     }
@@ -100,19 +101,19 @@ sealed class AlarmContext : ApplicationContext
         loginItems.Clear();
 
         int i = 0;
-        foreach (var a in cfg.Agendas.Where(a => a.HeeftAgenda))
-            menu.Items.Insert(i++, statusItems["agenda|" + a.Naam] =
-                new ToolStripMenuItem($"{a.Naam}: nog niet opgehaald") { Enabled = false });
+        foreach (var a in cfg.ActieveAgendas)
+            menu.Items.Insert(i++, statusItems[a] =
+                new ToolStripMenuItem($"{a.Name}: nog niet opgehaald") { Enabled = false });
         foreach (var p in pollers)
         {
-            menu.Items.Insert(i++, statusItems["teams|" + p.Job.Naam] =
-                new ToolStripMenuItem($"{p.Job.Naam} Teams: nog niet opgehaald") { Enabled = false });
-            var login = new ToolStripMenuItem($"Inloggen bij {p.Job.Naam}…", null, async (_, _) => await Inloggen(p)) { Visible = false };
-            menu.Items.Insert(i++, loginItems[p.Job.Naam] = login);
+            menu.Items.Insert(i++, statusItems[p.Job] =
+                new ToolStripMenuItem($"{p.Job.Name} Teams: nog niet opgehaald") { Enabled = false });
+            var login = new ToolStripMenuItem($"Inloggen bij {p.Job.Name}…", null, async (_, _) => await Inloggen(p)) { Visible = false };
+            menu.Items.Insert(i++, loginItems[p.Job] = login);
         }
     }
 
-    void ZetStatus(string sleutel, string tekst)
+    void ZetStatus(object sleutel, string tekst)
     {
         if (statusItems.TryGetValue(sleutel, out var item)) item.Text = tekst;
     }
@@ -147,36 +148,36 @@ sealed class AlarmContext : ApplicationContext
         while (!stop.IsCancellationRequested)
         {
             await VerversAlles();
-            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(30, cfg.VerversSeconden)), stop.Token); }
+            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(30, cfg.Meetings.RefreshSeconds)), stop.Token); }
             catch (TaskCanceledException) { break; }
         }
     }
 
     async Task VerversAlles()
     {
-        foreach (var a in cfg.Agendas.Where(a => a.HeeftAgenda))
+        foreach (var a in cfg.ActieveAgendas.ToList())
         {
-            var sleutel = "agenda|" + a.Naam;
+            var sleutel = a;
             if (!Uri.TryCreate(a.Url, UriKind.Absolute, out _))
             {
-                ZetStatus(sleutel, $"{a.Naam}: nog geen ICS-link ingevuld");
+                ZetStatus(sleutel, $"{a.Name}: nog geen ICS-link ingevuld");
                 continue;
             }
             try
             {
                 var ics = await http.GetStringAsync(a.Url, stop.Token);
                 var lijst = await Task.Run(() => Agenda.Parse(a, ics));
-                if (!cfg.Agendas.Contains(a)) continue;   // config is intussen herladen
-                perAgenda[a.Naam] = lijst;   // alleen vervangen bij succes
-                ZetStatus(sleutel, $"{a.Naam}: OK om {DateTime.Now:HH:mm}, {lijst.Count} komende meeting(s)");
+                if (!cfg.Calendars.Contains(a)) continue;   // config is intussen herladen
+                perAgenda[a] = lijst;   // alleen vervangen bij succes
+                ZetStatus(sleutel, $"{a.Name}: OK om {DateTime.Now:HH:mm}, {lijst.Count} komende meeting(s)");
                 foutGemeld.Remove(sleutel);
             }
             catch (Exception e) when (!stop.IsCancellationRequested)
             {
-                if (!cfg.Agendas.Contains(a)) continue;
-                ZetStatus(sleutel, $"{a.Naam}: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}");
+                if (!cfg.Calendars.Contains(a)) continue;
+                ZetStatus(sleutel, $"{a.Name}: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}");
                 if (foutGemeld.Add(sleutel))
-                    tray.ShowBalloonTip(5000, "Meeting Alarm", $"Agenda '{a.Naam}' ophalen mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
+                    tray.ShowBalloonTip(5000, "Meeting Alarm", $"Agenda '{a.Name}' ophalen mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
             }
         }
         Check();
@@ -190,7 +191,7 @@ sealed class AlarmContext : ApplicationContext
         foreach (var m in perAgenda.Values.SelectMany(x => x))
         {
             var sec = (m.Start - nu).TotalSeconds;
-            if (sec <= cfg.MinutenVooraf * 60 && sec > -120 && getoond.Add(m.Sleutel))
+            if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -120 && getoond.Add(m.Sleutel))
                 new MeetingPopup(m, cfg).Toon();
         }
     }
@@ -200,7 +201,7 @@ sealed class AlarmContext : ApplicationContext
         var regels = perAgenda.Values.SelectMany(x => x)
             .Where(m => m.Start > DateTime.Now.AddMinutes(-5))
             .OrderBy(m => m.Start).Take(20)
-            .Select(m => $"{m.Start:ddd HH:mm}   [{m.Agenda.Naam}]   {m.Titel}")
+            .Select(m => $"{m.Start:ddd HH:mm}   [{m.Agenda.Name}]   {m.Titel}")
             .ToList();
         MessageBox.Show(regels.Count > 0 ? string.Join("\n", regels) : "Geen meetings gevonden in de komende 2 dagen.",
             "Komende meetings");
@@ -208,7 +209,7 @@ sealed class AlarmContext : ApplicationContext
 
     void TestPopup()
     {
-        var agenda = cfg.Agendas.FirstOrDefault() ?? new AgendaConfig { Naam = "Test" };
+        var agenda = cfg.Calendars.FirstOrDefault() ?? new CalendarConfig { Name = "Test" };
         new MeetingPopup(new Meeting(agenda, "Testmeeting: weekstart met het team", DateTime.Now.AddSeconds(75),
             "test-" + Guid.NewGuid(), "https://teams.microsoft.com/l/meetup-join/test"), cfg).Toon();
     }
@@ -220,7 +221,7 @@ sealed class AlarmContext : ApplicationContext
         while (!stop.IsCancellationRequested)
         {
             await PollChats();
-            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, cfg.ChatPollSeconden)), stop.Token); }
+            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, cfg.Chats.PollSeconds)), stop.Token); }
             catch (TaskCanceledException) { break; }
         }
     }
@@ -234,7 +235,7 @@ sealed class AlarmContext : ApplicationContext
             var alle = new List<ChatRij>();
             foreach (var p in pollers.ToList())
             {
-                var sleutel = "teams|" + p.Job.Naam;
+                var sleutel = p.Job;
                 if (p.InloggenNodig)
                 {
                     alle.AddRange(p.Vorige);
@@ -243,7 +244,7 @@ sealed class AlarmContext : ApplicationContext
                 try
                 {
                     alle.AddRange(await p.Poll(stop.Token));
-                    ZetStatus(sleutel, $"{p.Job.Naam} Teams: OK om {DateTime.Now:HH:mm}");
+                    ZetStatus(sleutel, $"{p.Job.Name} Teams: OK om {DateTime.Now:HH:mm}");
                     foutGemeld.Remove(sleutel);
                 }
                 catch (MsalUiRequiredException)
@@ -254,9 +255,9 @@ sealed class AlarmContext : ApplicationContext
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
                     alle.AddRange(p.Vorige);
-                    ZetStatus(sleutel, $"{p.Job.Naam} Teams: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}");
+                    ZetStatus(sleutel, $"{p.Job.Name} Teams: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}");
                     if (foutGemeld.Add(sleutel))
-                        tray.ShowBalloonTip(5000, "Meeting Alarm", $"Teams-chats '{p.Job.Naam}' ophalen mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
+                        tray.ShowBalloonTip(5000, "Meeting Alarm", $"Teams-chats '{p.Job.Name}' ophalen mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
                 }
             }
             chatRijen = alle;
@@ -271,14 +272,14 @@ sealed class AlarmContext : ApplicationContext
     void MoetInloggen(ChatPoller p)
     {
         p.InloggenNodig = true;
-        ZetStatus("teams|" + p.Job.Naam, $"{p.Job.Naam} Teams: inloggen vereist");
-        if (loginItems.TryGetValue(p.Job.Naam, out var item)) item.Visible = true;
+        ZetStatus(p.Job, $"{p.Job.Name} Teams: inloggen vereist");
+        if (loginItems.TryGetValue(p.Job, out var item)) item.Visible = true;
 
         // De allereerste keer meteen het inlogvenster; daarna nooit ongevraagd, alleen via het menu.
-        if (p.NooitIngelogd && autoInlogGeprobeerd.Add(p.Job.Naam))
+        if (p.NooitIngelogd && autoInlogGeprobeerd.Add($"{p.Job.Tenant}|{p.Job.LoginHint}"))
             _ = Inloggen(p);
-        else if (foutGemeld.Add("teams|" + p.Job.Naam))
-            tray.ShowBalloonTip(5000, "Meeting Alarm", $"Teams '{p.Job.Naam}': opnieuw inloggen vereist (rechtsklik op het icoon).", ToolTipIcon.Warning);
+        else if (foutGemeld.Add(p.Job))
+            tray.ShowBalloonTip(5000, "Meeting Alarm", $"Teams '{p.Job.Name}': opnieuw inloggen vereist (rechtsklik op het icoon).", ToolTipIcon.Warning);
     }
 
     async Task Inloggen(ChatPoller p)
@@ -286,14 +287,14 @@ sealed class AlarmContext : ApplicationContext
         try
         {
             await p.Inloggen();
-            if (loginItems.TryGetValue(p.Job.Naam, out var item)) item.Visible = false;
-            foutGemeld.Remove("teams|" + p.Job.Naam);
-            ZetStatus("teams|" + p.Job.Naam, $"{p.Job.Naam} Teams: ingelogd, ophalen…");
+            if (loginItems.TryGetValue(p.Job, out var item)) item.Visible = false;
+            foutGemeld.Remove(p.Job);
+            ZetStatus(p.Job, $"{p.Job.Name} Teams: ingelogd, ophalen…");
             await PollChats();
         }
         catch (Exception e)
         {
-            tray.ShowBalloonTip(5000, "Meeting Alarm", $"Inloggen bij '{p.Job.Naam}' mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
+            tray.ShowBalloonTip(5000, "Meeting Alarm", $"Inloggen bij '{p.Job.Name}' mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
         }
     }
 
@@ -310,7 +311,7 @@ sealed class AlarmContext : ApplicationContext
     void TestChatPopup()
     {
         // Voorbeeldrij (wordt niet bewaard); verdwijnt bij de volgende poll of met ✓.
-        var job = cfg.Agendas.FirstOrDefault() ?? new AgendaConfig { Naam = "Test" };
+        var job = cfg.Teams.FirstOrDefault() ?? new TeamsConfig { Name = "Test" };
         chatRijen = [.. chatRijen.Where(r => !r.Sleutel.StartsWith("test|")),
             new ChatRij(job, "test|voorbeeld", "Voorbeeld Collega", 3, DateTimeOffset.Now, null)];
         chatPopup.Werk(chatRijen);

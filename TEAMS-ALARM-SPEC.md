@@ -105,7 +105,7 @@ Persisted in `%APPDATA%\MeetingAlarm\chats.json`, written after every change (wr
 { "tenantGuid|19:abc...@thread.v2": "2026-09-25T14:03:11.123Z" }
 ```
 
-## 5. Polling (per tenant, every `ChatPollSeconden`, default 30)
+## 5. Polling (per tenant, every `Chats.PollSeconds`, default 30)
 
 1. `GET /me` once → my user id (`meId`).
 2. `GET /me/chats?$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc&$top=50`
@@ -121,45 +121,34 @@ Persisted in `%APPDATA%\MeetingAlarm\chats.json`, written after every change (wr
 
 Cost: 1 request per tenant per poll, plus 1 or 2 per chat that actually changed.
 
-## 6. Config (extends the existing `config.json`)
+## 6. Config (`config.json`, v2)
 
-A job is an employer: calendar and Teams belong together, so the **existing `Agendas` entries get optional
-Teams fields** and share `Naam`/`Kleur`. An entry without `Tenant` has no chat monitoring, and an entry
-without `Url` has no calendar. Existing configs keep working unchanged.
+Calendars and Teams tenants are **separate lists**: one tenant can have several ICS calendars, and vice versa.
+Keys are English. A v1 file (Dutch keys, one `Agendas` list) is migrated automatically on load. The original is kept as
+`config.v1.json`, and each old job becomes a calendar entry (if it had a `Url`) and/or a Teams entry (if it had a `Tenant`).
 
 ```json
 {
-  "MinutenVooraf": 5,
-  "SnoozeSeconden": 60,
-  "AutoSluitenNaMinuten": 15,
-  "VerversSeconden": 180,
-  "Geluid": true,
-
-  "MeetingPositie": "RechtsOnder",
-  "ChatPositie": "RechtsMidden",
-  "ChatPollSeconden": 30,
-  "ChatTypes": ["oneOnOne", "group"],
-  "ChatKnipperSeconden": 3,
-
-  "Agendas": [
-    { "Naam": "Job 1", "Kleur": "#c62828", "Url": "https://…/calendar.ics",
-      "Tenant": "job1.nl", "LoginHint": "bart@job1.nl" },
-    { "Naam": "Job 2", "Kleur": "#1565c0", "Url": "https://…/calendar.ics",
-      "Tenant": "job2.com", "LoginHint": "bart@job2.com" }
+  "Sound": true,
+  "Meetings": { "Position": "BottomRight", "MinutesBefore": 5, "SnoozeSeconds": 60, "AutoCloseAfterMinutes": 15, "RefreshSeconds": 180 },
+  "Chats":    { "Position": "MiddleRight", "PollSeconds": 30, "ChatTypes": ["oneOnOne", "group"], "FlashSeconds": 3 },
+  "Calendars": [
+    { "Name": "Job 1", "Url": "https://…/calendar.ics", "Color": "firebrick" },
+    { "Name": "Job 1 (team)", "Url": "https://…/team.ics", "Color": "#c62828" }
+  ],
+  "Teams": [
+    { "Name": "Job 1", "Tenant": "job1.nl", "LoginHint": "bart@job1.nl", "Color": "firebrick" }
   ]
 }
 ```
 
-- `Tenant` is a domain or tenant GUID, used in the authority `https://login.microsoftonline.com/{Tenant}`.
-  The authority is always the **specific tenant**, never `organizations`/`common`, even with a multi-tenant app.
-  That way each job's token belongs to the right tenant.
-- `ClientId` is optional, both at the top level and per job. Resolution order: job → top level → built-in constant
-  (FriendlyReminders). A normal config never contains it.
-- **Positions**: `LinksBoven`, `Boven`, `RechtsBoven`, `LinksMidden`, `RechtsMidden`, `LinksOnder`, `Onder`, `RechtsOnder`.
-  They are relative to the primary screen's **working area** (taskbar excluded), with a 10 px margin.
-- Everything reloads live through the existing FileSystemWatcher, **including positions** (open popups move right away).
-  A changed tenant/login re-authenticates that job only.
-- The first-run template gets the new fields with empty Teams values.
+- `Tenant` is a domain or tenant GUID, used in the authority `https://login.microsoftonline.com/{Tenant}`. It is always the
+  **specific tenant**, never `organizations`/`common`, so each token belongs to the right tenant.
+- `ClientId` is optional in `Chats` and per Teams entry. Resolution order: entry → `Chats` → built-in constant (FriendlyReminders).
+- `Color`: `#rrggbb`, `#rgb`, or a CSS color name (`teal`, `rebeccapurple`, `slategrey`). Anything invalid falls back to firebrick.
+- **Positions**: `TopLeft`, `Top`, `TopRight`, `MiddleLeft`, `MiddleRight`, `BottomLeft`, `Bottom`, `BottomRight`,
+  relative to the primary screen's working area, with a 10 px margin.
+- Everything reloads live (FileSystemWatcher), including positions.
 
 ## 7. UI
 

@@ -14,7 +14,7 @@ sealed class ChatPopup : PopupBasis
     Dictionary<string, int> vorige = new();
     string handtekening = "";
     int knipperTikken;
-    Positie positie = Positie.RechtsMidden;
+    Position positie = Position.MiddleRight;
 
     /// <summary>De gebruiker heeft deze rijen gezien (✓ of "Alles gezien").</summary>
     public event Action<IReadOnlyList<ChatRij>>? Gezien;
@@ -22,7 +22,7 @@ sealed class ChatPopup : PopupBasis
     public int KnipperSeconden { get; set; } = 3;
     public bool Geluid { get; set; } = true;
 
-    public Positie Positie
+    public Position Positie
     {
         get => positie;
         set { positie = value; Herplaats(); }
@@ -110,7 +110,7 @@ sealed class ChatPopup : PopupBasis
             RowCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = ParseKleur(r.Job.Kleur),
+            BackColor = Kleur.Parse(r.Job.Color),
             Margin = new Padding(0, S(3), 0, S(3)),
             Padding = new Padding(S(8), S(4), S(4), S(4)),
         };
@@ -123,7 +123,7 @@ sealed class ChatPopup : PopupBasis
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
         };
-        tekst.Controls.Add(Tekst(r.Job.Naam.ToUpperInvariant(), 8, S(250)));
+        tekst.Controls.Add(Tekst(r.Job.Name.ToUpperInvariant(), 8, S(250)));
         var naam = Tekst(r.Naam, 12, S(250));
         naam.AutoSize = false;
         naam.AutoEllipsis = true;

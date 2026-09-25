@@ -5,7 +5,7 @@ using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Broker;
 using Microsoft.Identity.Client.Extensions.Msal;
 
-sealed record ChatRij(AgendaConfig Job, string Sleutel, string Naam, int Aantal, DateTimeOffset Nieuwste, string? WebUrl);
+sealed record ChatRij(TeamsConfig Job, string Sleutel, string Naam, int Aantal, DateTimeOffset Nieuwste, string? WebUrl);
 
 sealed class GraphFout(string bericht) : Exception(bericht);
 
@@ -17,7 +17,7 @@ sealed class ChatPoller
     static readonly HttpClient Http = new() { BaseAddress = new Uri("https://graph.microsoft.com/v1.0/"), Timeout = TimeSpan.FromSeconds(30) };
     static Task<MsalCacheHelper>? cacheHelper;
 
-    public AgendaConfig Job { get; }
+    public TeamsConfig Job { get; }
     public bool InloggenNodig { get; set; }
     /// <summary>Laatste geslaagde resultaat; blijft staan als een poll mislukt.</summary>
     public List<ChatRij> Vorige { get; private set; } = [];
@@ -33,14 +33,14 @@ sealed class ChatPoller
     string? mijnId, tenantId;
     DateTimeOffset pauzeTot;
 
-    public ChatPoller(AgendaConfig job, string clientId, IReadOnlyCollection<string> chatTypes, ChatState state, Func<IntPtr> eigenaarVenster)
+    public ChatPoller(TeamsConfig job, string clientId, IReadOnlyCollection<string> chatTypes, ChatState state, Func<IntPtr> eigenaarVenster)
     {
         Job = job;
         this.chatTypes = chatTypes;
         this.state = state;
         // Altijd de specifieke tenant als authority (niet "organizations"): zo hoort elk token bij de juiste job.
         app = PublicClientApplicationBuilder.Create(clientId)
-            .WithAuthority(AzureCloudInstance.AzurePublic, job.Tenant!)
+            .WithAuthority(AzureCloudInstance.AzurePublic, job.Tenant)
             .WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows) { Title = "Meeting Alarm" })
             .WithParentActivityOrWindow(eigenaarVenster)
             .Build();

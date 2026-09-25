@@ -2,9 +2,9 @@ using System.Text.RegularExpressions;
 using Ical.Net;
 using Ical.Net.CalendarComponents;
 
-sealed record Meeting(AgendaConfig Agenda, string Titel, DateTime Start, string Uid, string? Link)
+sealed record Meeting(CalendarConfig Agenda, string Titel, DateTime Start, string Uid, string? Link)
 {
-    public string Sleutel => $"{Agenda.Naam}|{Uid}|{Start:O}";
+    public string Sleutel => $"{Agenda.Name}|{Uid}|{Start:O}";
 }
 
 static class Agenda
@@ -13,7 +13,7 @@ static class Agenda
         @"https://(?:teams\.microsoft\.com/l/meetup-join|teams\.live\.com/meet|[\w.-]*zoom\.us/j|meet\.google\.com)/[^\s""<>]+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static List<Meeting> Parse(AgendaConfig a, string ics)
+    public static List<Meeting> Parse(CalendarConfig a, string ics)
     {
         var cal = Calendar.Load(ics);
         var van = DateTime.Now.AddHours(-1);

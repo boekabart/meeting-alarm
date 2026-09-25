@@ -4,21 +4,21 @@ static class Plaatsing
 
     /// <summary>
     /// Posities voor een stapel vensters binnen het werkgebied. Index 0 ligt het dichtst bij de ankerrand;
-    /// "Onder" stapelt omhoog, "Boven" omlaag, "Midden" gecentreerd rond het midden.
+    /// "Bottom" stapelt omhoog, "Top" omlaag, "Middle" gecentreerd rond het midden.
     /// </summary>
-    public static List<Point> Bereken(Positie pos, Rectangle wa, IReadOnlyList<Size> maten)
+    public static List<Point> Bereken(Position pos, Rectangle wa, IReadOnlyList<Size> maten)
     {
         int X(int w) => pos switch
         {
-            Positie.LinksBoven or Positie.LinksMidden or Positie.LinksOnder => wa.Left + Marge,
-            Positie.RechtsBoven or Positie.RechtsMidden or Positie.RechtsOnder => wa.Right - w - Marge,
+            Position.TopLeft or Position.MiddleLeft or Position.BottomLeft => wa.Left + Marge,
+            Position.TopRight or Position.MiddleRight or Position.BottomRight => wa.Right - w - Marge,
             _ => wa.Left + (wa.Width - w) / 2,
         };
 
         var res = new List<Point>(maten.Count);
         switch (pos)
         {
-            case Positie.LinksOnder or Positie.Onder or Positie.RechtsOnder:
+            case Position.BottomLeft or Position.Bottom or Position.BottomRight:
                 int yOnder = wa.Bottom;
                 foreach (var m in maten)
                 {
@@ -26,7 +26,7 @@ static class Plaatsing
                     res.Add(new Point(X(m.Width), yOnder));
                 }
                 break;
-            case Positie.LinksBoven or Positie.Boven or Positie.RechtsBoven:
+            case Position.TopLeft or Position.Top or Position.TopRight:
                 int yBoven = wa.Top + Marge;
                 foreach (var m in maten)
                 {

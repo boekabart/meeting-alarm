@@ -63,10 +63,4 @@ abstract class PopupBasis : Form
         b.Click += (_, _) => actie();
         return b;
     }
-
-    protected static Color ParseKleur(string hex)
-    {
-        try { return ColorTranslator.FromHtml(hex); }
-        catch { return Color.Firebrick; }
-    }
 }

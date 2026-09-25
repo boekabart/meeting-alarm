@@ -7,7 +7,7 @@ sealed class MeetingPopup : PopupBasis
     static readonly List<MeetingPopup> Open = new();
 
     /// <summary>Anker voor de stapel meeting-popups; na wijzigen <see cref="Herplaats"/> aanroepen.</summary>
-    public static Positie Positie { get; set; } = Positie.RechtsOnder;
+    public static Position Positie { get; set; } = Position.BottomRight;
 
     readonly Meeting m;
     readonly Config cfg;
@@ -21,7 +21,7 @@ sealed class MeetingPopup : PopupBasis
     {
         this.m = m;
         this.cfg = cfg;
-        kleur = ParseKleur(m.Agenda.Kleur);
+        kleur = Kleur.Parse(m.Agenda.Color);
         int tekstBreedte = S(400);
 
         binnen = new FlowLayoutPanel
@@ -35,7 +35,7 @@ sealed class MeetingPopup : PopupBasis
             Margin = Padding.Empty,
         };
 
-        binnen.Controls.Add(Tekst(m.Agenda.Naam.ToUpperInvariant(), 10, tekstBreedte));
+        binnen.Controls.Add(Tekst(m.Agenda.Name.ToUpperInvariant(), 10, tekstBreedte));
         binnen.Controls.Add(Tekst(m.Titel, 15, tekstBreedte));
         lblTijd = Tekst("", 20, tekstBreedte);
         lblTijd.Margin = new Padding(3, S(4), 3, S(8));
@@ -77,7 +77,7 @@ sealed class MeetingPopup : PopupBasis
 
     void Speel()
     {
-        if (cfg.Geluid) SystemSounds.Exclamation.Play();
+        if (cfg.Sound) SystemSounds.Exclamation.Play();
     }
 
     public static void Herplaats()
@@ -99,7 +99,7 @@ sealed class MeetingPopup : PopupBasis
         else
         {
             int min = -sec / 60;
-            if (min >= cfg.AutoSluitenNaMinuten) { Close(); return; }
+            if (min >= cfg.Meetings.AutoCloseAfterMinutes) { Close(); return; }
             lblTijd.Text = min == 0 ? "NU BEGONNEN!" : $"Begonnen, {min} min geleden";
             knipperen = true;
         }
@@ -115,7 +115,7 @@ sealed class MeetingPopup : PopupBasis
         Hide();
         Herplaats();
 
-        var wacht = new WinTimer { Interval = Math.Max(5, cfg.SnoozeSeconden) * 1000 };
+        var wacht = new WinTimer { Interval = Math.Max(5, cfg.Meetings.SnoozeSeconds) * 1000 };
         wacht.Tick += (_, _) =>
         {
             wacht.Dispose();
