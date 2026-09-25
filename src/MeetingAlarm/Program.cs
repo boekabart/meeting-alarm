@@ -13,10 +13,11 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        Kies(null);   // Windows-taal tot de config geladen is
         using var mutex = new Mutex(true, "MeetingAlarm_SingleInstance", out bool eerste);
         if (!eerste)
         {
-            MessageBox.Show("Meeting Alarm draait al (zie systeemvak).", "Meeting Alarm");
+            MessageBox.Show(T.DraaitAl, "Meeting Alarm");
             return;
         }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);

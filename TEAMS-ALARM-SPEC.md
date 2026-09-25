@@ -129,6 +129,7 @@ Keys are English. A v1 file (Dutch keys, one `Agendas` list) is migrated automat
 
 ```json
 {
+  "Language": "",
   "Sound": true,
   "Meetings": { "Position": "BottomRight", "MinutesBefore": 5, "SnoozeSeconds": 60, "AutoCloseAfterMinutes": 15, "RefreshSeconds": 180 },
   "Chats":    { "Position": "MiddleRight", "PollSeconds": 30, "ChatTypes": ["oneOnOne", "group"], "FlashSeconds": 3 },
@@ -148,7 +149,10 @@ Keys are English. A v1 file (Dutch keys, one `Agendas` list) is migrated automat
 - `Color`: `#rrggbb`, `#rgb`, or a CSS color name (`teal`, `rebeccapurple`, `slategrey`). Anything invalid falls back to firebrick.
 - **Positions**: `TopLeft`, `Top`, `TopRight`, `MiddleLeft`, `MiddleRight`, `BottomLeft`, `Bottom`, `BottomRight`,
   relative to the primary screen's working area, with a 10 px margin.
-- Everything reloads live (FileSystemWatcher), including positions.
+- `Language`: `en-US`, `en-GB`, `nl-NL`, `sv-SE` (or short: `nl`, `sv`, `en`). Blank means the Windows display language.
+  Other variants of a language fall back to the closest one (nl-BE → nl-NL, en-AU → en-GB), and anything else falls back to en-US.
+  Times use the chosen culture's short time format (en-US "2:03 PM", the others "14:03").
+- Everything reloads live (FileSystemWatcher), including positions and language.
 
 ## 7. UI
 

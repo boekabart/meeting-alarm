@@ -13,6 +13,9 @@ static class Agenda
         @"https://(?:teams\.microsoft\.com/l/meetup-join|teams\.live\.com/meet|[\w.-]*zoom\.us/j|meet\.google\.com)/[^\s""<>]+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Outlook zet dit voor de titel van een geannuleerde meeting, in de taal van de organisator.
+    static readonly string[] GeannuleerdPrefixen = ["Geannuleerd", "Canceled", "Cancelled", "Inställt", "Avbokat"];
+
     public static List<Meeting> Parse(CalendarConfig a, string ics)
     {
         var cal = Calendar.Load(ics);
@@ -25,10 +28,8 @@ static class Agenda
             if (occ.Source is not CalendarEvent ev || ev.IsAllDay) continue;
             if (string.Equals(ev.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase)) continue;
 
-            var titel = string.IsNullOrWhiteSpace(ev.Summary) ? "(geen titel)" : ev.Summary.Trim();
-            if (titel.StartsWith("Geannuleerd", StringComparison.OrdinalIgnoreCase) ||
-                titel.StartsWith("Canceled", StringComparison.OrdinalIgnoreCase) ||
-                titel.StartsWith("Cancelled", StringComparison.OrdinalIgnoreCase)) continue;
+            var titel = string.IsNullOrWhiteSpace(ev.Summary) ? T.GeenTitel : ev.Summary.Trim();
+            if (GeannuleerdPrefixen.Any(p => titel.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
 
             var teamsUrl = ev.Properties
                 .FirstOrDefault(p => string.Equals(p.Name, "X-MICROSOFT-SKYPETEAMSMEETINGURL", StringComparison.OrdinalIgnoreCase))

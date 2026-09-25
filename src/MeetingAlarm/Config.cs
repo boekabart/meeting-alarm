@@ -46,6 +46,8 @@ sealed class Config
     // FriendlyReminders: multi-tenant app-registratie (HighTech Innovators). Een client-id is geen geheim.
     public const string StandaardClientId = "c3e816c9-59eb-48ae-a7b8-710e8d145bb1";
 
+    /// <summary>"en-US", "en-GB", "nl-NL", "sv-SE" (of kort: "nl", "sv"); leeg = Windows-weergavetaal.</summary>
+    public string? Language { get; set; }
     public bool Sound { get; set; } = true;
     public MeetingsConfig Meetings { get; set; } = new();
     public ChatsConfig Chats { get; set; } = new();
@@ -99,6 +101,7 @@ sealed class Config
             Directory.CreateDirectory(Path.GetDirectoryName(Pad)!);
             Bewaar(new Config
             {
+                Language = "",
                 Calendars =
                 {
                     new CalendarConfig { Name = "Job 1", Url = "PASTE_ICS_LINK_JOB_1", Color = "firebrick" },
@@ -109,22 +112,21 @@ sealed class Config
                     new TeamsConfig { Name = "Job 1", Tenant = "", LoginHint = "", Color = "firebrick" },
                 },
             });
-            if (MessageBox.Show("Meeting Alarm automatisch starten met Windows?", "Meeting Alarm",
+            if (MessageBox.Show(T.AutostartVraag, "Meeting Alarm",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 Autostart.Aan = true;
-            MessageBox.Show($"Instellingenbestand aangemaakt:\n{Pad}\n\n" +
-                "Vul je ICS-links in, en voor Teams-chats je Tenant (bv. bedrijf.nl) en LoginHint (je werk-e-mail). " +
-                "Sla op; wijzigingen worden automatisch geladen.",
-                "Meeting Alarm");
+            MessageBox.Show(F(T.ConfigAangemaakt, Pad), "Meeting Alarm");
             OpenInKladblok();
         }
         try
         {
-            return Laad();
+            var cfg = Laad();
+            Kies(cfg.Language);
+            return cfg;
         }
         catch (Exception e)
         {
-            MessageBox.Show($"Fout in {Pad}:\n\n{e.Message}", "Meeting Alarm");
+            MessageBox.Show(F(T.ConfigFoutStart, Pad, e.Message), "Meeting Alarm");
             return null;
         }
     }

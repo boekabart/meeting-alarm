@@ -50,13 +50,13 @@ sealed class MeetingPopup : PopupBasis
             Margin = Padding.Empty,
         };
         if (m.Link is not null)
-            knoppen.Controls.Add(Knop("Deelnemen", () =>
+            knoppen.Controls.Add(Knop(T.Deelnemen, () =>
             {
                 Process.Start(new ProcessStartInfo(m.Link) { UseShellExecute = true });
                 Close();
             }));
-        knoppen.Controls.Add(Knop("Straks", Snooze));
-        knoppen.Controls.Add(Knop("Sluiten", Close));
+        knoppen.Controls.Add(Knop(T.Straks, Snooze));
+        knoppen.Controls.Add(Knop(T.Sluiten, Close));
         binnen.Controls.Add(knoppen);
 
         Controls.Add(binnen);
@@ -93,14 +93,14 @@ sealed class MeetingPopup : PopupBasis
         bool knipperen;
         if (sec > 0)
         {
-            lblTijd.Text = $"Start over {sec / 60}:{sec % 60:00}   ({m.Start:HH:mm})";
+            lblTijd.Text = F(T.StartOver, sec / 60, sec % 60, m.Start);
             knipperen = sec <= 60;   // laatste minuut knipperen
         }
         else
         {
             int min = -sec / 60;
             if (min >= cfg.Meetings.AutoCloseAfterMinutes) { Close(); return; }
-            lblTijd.Text = min == 0 ? "NU BEGONNEN!" : $"Begonnen, {min} min geleden";
+            lblTijd.Text = min == 0 ? T.NuBegonnen : F(T.BegonnenGeleden, min);
             knipperen = true;
         }
         knipperAan = knipperen && !knipperAan;

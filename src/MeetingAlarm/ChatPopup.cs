@@ -57,7 +57,7 @@ sealed class ChatPopup : PopupBasis
         bool meer = rijen.Any(r => !vorige.TryGetValue(r.Sleutel, out var oud) || r.Aantal > oud);
         vorige = rijen.ToDictionary(r => r.Sleutel, r => r.Aantal);
 
-        var nieuw = string.Join("\n", rijen.Select(r => $"{r.Sleutel}|{r.Aantal}|{r.Naam}"));
+        var nieuw = Cultuur.Name + "\n" + string.Join("\n", rijen.Select(r => $"{r.Sleutel}|{r.Aantal}|{r.Naam}"));   // taalwissel = opnieuw opbouwen
         if (nieuw != handtekening)
         {
             handtekening = nieuw;
@@ -91,12 +91,12 @@ sealed class ChatPopup : PopupBasis
         foreach (var c in binnen.Controls.Cast<Control>().ToList()) c.Dispose();
 
         int breedte = S(380);
-        binnen.Controls.Add(Tekst($"Teams — {rijen.Sum(r => r.Aantal)} ongelezen", 11, breedte));
+        binnen.Controls.Add(Tekst(F(T.ChatKop, rijen.Sum(r => r.Aantal)), 11, breedte));
         foreach (var r in rijen.OrderByDescending(r => r.Nieuwste).Take(MaxRijen))
             binnen.Controls.Add(Rij(r));
         if (rijen.Count > MaxRijen)
-            binnen.Controls.Add(Tekst($"+ {rijen.Count - MaxRijen} andere chats", 9, breedte));
-        binnen.Controls.Add(Knop("Alles gezien", () => Gezien?.Invoke(rijen)));
+            binnen.Controls.Add(Tekst(F(T.AndereChats, rijen.Count - MaxRijen), 9, breedte));
+        binnen.Controls.Add(Knop(T.AllesGezien, () => Gezien?.Invoke(rijen)));
 
         ResumeLayout();
         PerformLayout();
@@ -140,7 +140,7 @@ sealed class ChatPopup : PopupBasis
         aantal.TextAlign = ContentAlignment.MiddleRight;
 
         var ok = Knop("✓", () => Gezien?.Invoke([r]));
-        tip.SetToolTip(ok, "Gezien (tot er nieuwe berichten komen)");
+        tip.SetToolTip(ok, T.GezienTip);
 
         rij.Controls.Add(tekst, 0, 0);
         rij.Controls.Add(aantal, 1, 0);

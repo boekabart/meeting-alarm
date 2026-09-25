@@ -148,7 +148,7 @@ sealed class ChatPoller
             .Where(m => m.Str("userId") != mijnId)
             .Select(m => m.Str("displayName"))
             .Where(s => !string.IsNullOrWhiteSpace(s)));
-        return namen[chatId] = naam.Length > 0 ? naam : "(chat)";
+        return namen[chatId] = naam.Length > 0 ? naam : T.OnbekendeChat;
     }
 
     static Bericht NaarBericht(JsonElement m)
@@ -171,7 +171,7 @@ sealed class ChatPoller
         if ((int)resp.StatusCode == 429)
         {
             pauzeTot = DateTimeOffset.Now + (resp.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(1));
-            throw new GraphFout($"te veel verzoeken, pauze tot {pauzeTot:HH:mm:ss}");
+            throw new GraphFout(F(T.TeVeelVerzoeken, pauzeTot));
         }
         if (!resp.IsSuccessStatusCode)
         {
