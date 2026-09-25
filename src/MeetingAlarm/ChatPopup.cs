@@ -139,7 +139,7 @@ sealed class ChatPopup : PopupBasis
         {
             naam.Cursor = Cursors.Hand;
             naam.Font = new Font(naam.Font, FontStyle.Bold | FontStyle.Underline);
-            naam.Click += (_, _) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });   // openen = niet geackt
+            naam.Click += (_, _) => TeamsLink.Open(url);   // openen = niet geackt
         }
         tekst.Controls.Add(naam);
 

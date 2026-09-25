@@ -90,3 +90,18 @@ public class WinFormsTests
         Assert.NotNull(typeof(NotifyIcon).GetMethod("ShowContextMenu",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
 }
+
+public class TeamsLinkTests
+{
+    [Fact]
+    public void Gebouwde_link_heeft_de_vorm_van_graph_webUrl() =>
+        Assert.Equal("https://teams.microsoft.com/l/chat/19%3Aabc%40thread.v2/0?tenantId=t-1",
+            TeamsLink.VoorChat("t-1", "19:abc@thread.v2"));
+
+    [Theory]
+    [InlineData("https://teams.microsoft.com/l/chat/19%3Aabc%40thread.v2/0?tenantId=t-1", "msteams:/l/chat/19%3Aabc%40thread.v2/0?tenantId=t-1")]
+    [InlineData("https://teams.cloud.microsoft/l/chat/19%3Aabc/0?tenantId=t", "msteams:/l/chat/19%3Aabc/0?tenantId=t")]
+    [InlineData("https://example.com/l/chat/x", null)]
+    [InlineData("geen url", null)]
+    public void NaarApp(string webUrl, string? verwacht) => Assert.Equal(verwacht, TeamsLink.NaarApp(webUrl));
+}

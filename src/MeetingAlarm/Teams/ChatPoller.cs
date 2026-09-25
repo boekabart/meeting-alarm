@@ -131,7 +131,8 @@ sealed class ChatPoller
             if (telling.EigenBericht is { } eigen) state.Ack(sleutel, eigen);
             if (telling.Aantal == 0) continue;
 
-            rijen.Add(new ChatRij(Job, sleutel, await Naam(c, chatId, ct), telling.Aantal, telling.Nieuwste!.Value, c.Str("webUrl")));
+            rijen.Add(new ChatRij(Job, sleutel, await Naam(c, chatId, ct), telling.Aantal, telling.Nieuwste!.Value,
+                c.Str("webUrl") ?? TeamsLink.VoorChat(tenantId!, chatId)));
         }
         Vorige = rijen;
         return rijen;
