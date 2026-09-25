@@ -1,30 +1,29 @@
-// Meeting Alarm - grote, blijvende popups zodat je geen werk mist:
-//  * meetings: popup voordat een meeting begint (agenda's via hun gepubliceerde ICS-link)
-//  * Teams-chats: popup met ongelezen chats (Microsoft Graph, per tenant ingelogd)
+// Meeting Alarm - big, persistent popups so you don't miss work:
+//  * meetings: a popup before a meeting starts (calendars via their published ICS link)
+//  * Teams chats: a popup listing unread chats (Microsoft Graph, signed in per tenant)
 //
-// Draaien:   dotnet run --project src/MeetingAlarm
-// Testen:    dotnet run --project src/MeetingAlarm -- --test
-// Exe maken: dotnet publish src/MeetingAlarm -o publish
-// Instellingen: %APPDATA%\MeetingAlarm\config.json (wordt bij eerste start aangemaakt,
-//               wijzigingen worden automatisch geladen)
+// Run:       dotnet run --project src/MeetingAlarm
+// Test:      dotnet run --project src/MeetingAlarm -- --test
+// Build exe: dotnet publish src/MeetingAlarm -o publish
+// Settings:  %APPDATA%\MeetingAlarm\config.json (created on first start, changes are picked up automatically)
 
 static class Program
 {
     [STAThread]
     static void Main(string[] args)
     {
-        Kies(null);   // Windows-taal tot de config geladen is
-        using var mutex = new Mutex(true, "MeetingAlarm_SingleInstance", out bool eerste);
-        if (!eerste)
+        UseLanguage(null);   // Windows display language until the config is loaded
+        using var mutex = new Mutex(true, "MeetingAlarm_SingleInstance", out bool first);
+        if (!first)
         {
-            MessageBox.Show(T.DraaitAl, "Meeting Alarm");
+            MessageBox.Show(T.AlreadyRunning, "Meeting Alarm");
             return;
         }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        var config = Config.LaadOfMaak();
+        var config = Config.LoadOrCreate();
         if (config is null) return;
         Application.Run(new AlarmContext(config, args.Contains("--test")));
     }

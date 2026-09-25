@@ -1,5 +1,5 @@
-using Microsoft.Identity.Client;
 using System.Reflection;
+using Microsoft.Identity.Client;
 using Microsoft.Win32;
 using WinTimer = System.Windows.Forms.Timer;
 
@@ -7,41 +7,41 @@ sealed class AlarmContext : ApplicationContext
 {
     Config cfg;
     readonly ContextMenuStrip menu = new();
-    readonly ToolStripMenuItem miKomende, miVerversen, miTestPopup, miChatPopup, miAutostart, miInstellingen, miAfsluiten;
+    readonly ToolStripMenuItem miUpcoming, miRefresh, miTestPopup, miChatPopup, miAutostart, miSettings, miExit;
     readonly NotifyIcon tray;
     readonly WinTimer checkTimer;
-    readonly WinTimer herlaadTimer = new() { Interval = 500 };   // debounce: editors schrijven vaak meerdere keren
+    readonly WinTimer reloadTimer = new() { Interval = 500 };   // debounce: editors often write several times
     readonly FileSystemWatcher watcher;
-    readonly Dictionary<CalendarConfig, List<Meeting>> perAgenda = new();
-    // Per config-object (niet per naam): twee agenda's mogen dezelfde naam hebben.
+    readonly Dictionary<CalendarConfig, List<Meeting>> perCalendar = new();
+    // Keyed by config object (not by name): two calendars may share a name.
     readonly Dictionary<object, ToolStripMenuItem> statusItems = new();
-    readonly Dictionary<TeamsConfig, ToolStripMenuItem> loginItems = new();
-    readonly HashSet<object> foutGemeld = new();
-    readonly HashSet<string> getoond = new();
-    readonly HashSet<string> autoInlogGeprobeerd = new();
+    readonly Dictionary<TeamsConfig, ToolStripMenuItem> signInItems = new();
+    readonly HashSet<object> errorReported = new();
+    readonly HashSet<string> shown = new();
+    readonly HashSet<string> autoSignInTried = new();
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(30) };
     readonly CancellationTokenSource stop = new();
 
     readonly ChatState chatState = new();
     readonly ChatPopup chatPopup = new();
     List<ChatPoller> pollers = [];
-    List<ChatRij> chatRijen = [];
-    bool chatBezig;
+    List<ChatRow> chatRows = [];
+    bool chatPolling;
 
     public AlarmContext(Config cfg, bool test)
     {
         this.cfg = cfg;
-        // Teksten volgen in PasConfigToe (taal kan live wijzigen).
-        miKomende = new ToolStripMenuItem("", null, (_, _) => ToonKomende());
-        miVerversen = new ToolStripMenuItem("", null, async (_, _) => { await VerversAlles(); await PollChats(); });
+        // Texts are set in ApplyConfig (the language can change live).
+        miUpcoming = new ToolStripMenuItem("", null, (_, _) => ShowUpcoming());
+        miRefresh = new ToolStripMenuItem("", null, async (_, _) => { await RefreshCalendars(); await PollChats(); });
         miTestPopup = new ToolStripMenuItem("", null, (_, _) => TestPopup());
         miChatPopup = new ToolStripMenuItem("", null, (_, _) => TestChatPopup());
-        miAutostart = new ToolStripMenuItem("") { Checked = Autostart.Aan, CheckOnClick = true };
-        miAutostart.CheckedChanged += (_, _) => Autostart.Aan = miAutostart.Checked;
-        miInstellingen = new ToolStripMenuItem("", null, (_, _) => Config.OpenInKladblok());
-        miAfsluiten = new ToolStripMenuItem("", null, (_, _) => ExitThread());
-        menu.Items.AddRange([new ToolStripSeparator(), miKomende, miVerversen, miTestPopup, miChatPopup, miAutostart, miInstellingen,
-            new ToolStripSeparator(), miAfsluiten]);
+        miAutostart = new ToolStripMenuItem("") { Checked = Autostart.Enabled, CheckOnClick = true };
+        miAutostart.CheckedChanged += (_, _) => Autostart.Enabled = miAutostart.Checked;
+        miSettings = new ToolStripMenuItem("", null, (_, _) => Config.OpenInNotepad());
+        miExit = new ToolStripMenuItem("", null, (_, _) => ExitThread());
+        menu.Items.AddRange([new ToolStripSeparator(), miUpcoming, miRefresh, miTestPopup, miChatPopup, miAutostart, miSettings,
+            new ToolStripSeparator(), miExit]);
 
         tray = new NotifyIcon
         {
@@ -52,192 +52,191 @@ sealed class AlarmContext : ApplicationContext
         };
         tray.MouseUp += (_, e) =>
         {
-            // Linksklik opent hetzelfde menu als rechtsklik. NotifyIcon's eigen (private) ShowContextMenu zet het menu
-            // correct op de voorgrond, zodat het sluit bij klikken ernaast; menu.Show() alleen doet dat niet.
+            // Left-click opens the same menu as right-click. NotifyIcon's own (private) ShowContextMenu brings the menu
+            // to the foreground properly, so it closes when clicking elsewhere; menu.Show() alone doesn't.
             if (e.Button == MouseButtons.Left)
                 typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(tray, null);
         };
 
-        chatPopup.Gezien += Gezien;
-        PasConfigToe();
+        chatPopup.Seen += Seen;
+        ApplyConfig();
 
-        // FileSystemWatcher vuurt op een threadpool-thread; via de UI-context de debounce-timer (her)starten.
+        // FileSystemWatcher fires on a thread-pool thread; (re)start the debounce timer via the UI context.
         var ui = SynchronizationContext.Current!;
-        herlaadTimer.Tick += (_, _) => { herlaadTimer.Stop(); Herlaad(); };
-        watcher = new FileSystemWatcher(Path.GetDirectoryName(Config.Pad)!, Path.GetFileName(Config.Pad))
+        reloadTimer.Tick += (_, _) => { reloadTimer.Stop(); Reload(); };
+        watcher = new FileSystemWatcher(Path.GetDirectoryName(Config.FilePath)!, Path.GetFileName(Config.FilePath))
         {
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
         };
-        FileSystemEventHandler gewijzigd = (_, _) => ui.Post(_ => { herlaadTimer.Stop(); herlaadTimer.Start(); }, null);
-        watcher.Changed += gewijzigd;
-        watcher.Created += gewijzigd;
-        watcher.Renamed += (s, e) => gewijzigd(s, e);   // editors die via een tijdelijk bestand opslaan
+        FileSystemEventHandler changed = (_, _) => ui.Post(_ => { reloadTimer.Stop(); reloadTimer.Start(); }, null);
+        watcher.Changed += changed;
+        watcher.Created += changed;
+        watcher.Renamed += (s, e) => changed(s, e);   // editors that save via a temporary file
         watcher.EnableRaisingEvents = true;
 
-        SystemEvents.DisplaySettingsChanged += SchermenGewijzigd;   // scherm (los)gekoppeld: popups verhuizen mee
+        SystemEvents.DisplaySettingsChanged += DisplaysChanged;   // screen (un)plugged: popups move along
 
         checkTimer = new WinTimer { Interval = 10_000 };
         checkTimer.Tick += (_, _) => Check();
         checkTimer.Start();
 
-        _ = VerversLoop();
+        _ = CalendarLoop();
         _ = ChatLoop();
         if (test) TestPopup();
     }
 
-    /// <summary>Alles wat uit de config volgt en live mee moet veranderen.</summary>
-    void PasConfigToe()
+    /// <summary>Everything that follows from the config and must change along live.</summary>
+    void ApplyConfig()
     {
-        Kies(cfg.Language);
-        miKomende.Text = T.MenuKomende;
-        miVerversen.Text = T.MenuVerversen;
+        UseLanguage(cfg.Language);
+        miUpcoming.Text = T.MenuUpcoming;
+        miRefresh.Text = T.MenuRefresh;
         miTestPopup.Text = T.MenuTestPopup;
         miChatPopup.Text = T.MenuChatPopup;
         miAutostart.Text = T.MenuAutostart;
-        miInstellingen.Text = T.MenuInstellingen;
-        miAfsluiten.Text = T.MenuAfsluiten;
+        miSettings.Text = T.MenuSettings;
+        miExit.Text = T.MenuExit;
 
-        MeetingPopup.Positie = cfg.Meetings.Position;
-        MeetingPopup.Scherm = cfg.Meetings.Screen;
-        MeetingPopup.Herplaats();
-        chatPopup.Positie = cfg.Chats.Position;
-        chatPopup.Scherm = cfg.Chats.Screen;
-        chatPopup.KnipperSeconden = cfg.Chats.FlashSeconds;
-        chatPopup.Geluid = cfg.Sound;
+        MeetingPopup.Position = cfg.Meetings.Position;
+        MeetingPopup.DisplayNumber = cfg.Meetings.Screen;
+        MeetingPopup.Reposition();
+        chatPopup.Position = cfg.Chats.Position;
+        chatPopup.DisplayNumber = cfg.Chats.Screen;
+        chatPopup.FlashSeconds = cfg.Chats.FlashSeconds;
+        chatPopup.Sound = cfg.Sound;
 
-        var eigenaar = chatPopup.Handle;   // ouder voor het WAM-inlogvenster (tray-apps hebben geen eigen venster)
-        pollers = cfg.ActieveTeams
-            .Select(t => new ChatPoller(t, cfg.ClientIdVoor(t), cfg.Chats.ChatTypes, chatState, () => eigenaar))
+        var owner = chatPopup.Handle;   // parent for the WAM sign-in window (tray apps have no window of their own)
+        pollers = cfg.ActiveTeams
+            .Select(t => new ChatPoller(t, cfg.ClientIdFor(t), cfg.Chats.ChatTypes, chatState, () => owner))
             .ToList();
-        BouwStatusItems();
+        BuildStatusItems();
     }
 
-    void BouwStatusItems()
+    void BuildStatusItems()
     {
-        foreach (var item in statusItems.Values.Concat(loginItems.Values))
+        foreach (var item in statusItems.Values.Concat(signInItems.Values))
         {
             menu.Items.Remove(item);
             item.Dispose();
         }
         statusItems.Clear();
-        loginItems.Clear();
+        signInItems.Clear();
 
         int i = 0;
-        foreach (var a in cfg.ActieveAgendas)
-            menu.Items.Insert(i++, statusItems[a] =
-                new ToolStripMenuItem(F(T.StatusNogNiet, a.Name)) { Enabled = false });
+        foreach (var c in cfg.ActiveCalendars)
+            menu.Items.Insert(i++, statusItems[c] =
+                new ToolStripMenuItem(F(T.StatusNotFetched, c.Name)) { Enabled = false });
         foreach (var p in pollers)
         {
             menu.Items.Insert(i++, statusItems[p.Job] =
-                new ToolStripMenuItem(F(T.StatusNogNiet, TeamsNaam(p))) { Enabled = false });
-            var login = new ToolStripMenuItem(F(T.MenuInloggenBij, p.Job.Name), null, async (_, _) => await Inloggen(p)) { Visible = false };
-            menu.Items.Insert(i++, loginItems[p.Job] = login);
+                new ToolStripMenuItem(F(T.StatusNotFetched, TeamsName(p))) { Enabled = false });
+            var signIn = new ToolStripMenuItem(F(T.MenuSignInTo, p.Job.Name), null, async (_, _) => await SignIn(p)) { Visible = false };
+            menu.Items.Insert(i++, signInItems[p.Job] = signIn);
         }
     }
 
-    static string TeamsNaam(ChatPoller p) => $"{p.Job.Name} Teams";
+    static string TeamsName(ChatPoller p) => $"{p.Job.Name} Teams";
 
-    void ZetStatus(object sleutel, string tekst)
+    void SetStatus(object key, string text)
     {
-        if (statusItems.TryGetValue(sleutel, out var item)) item.Text = tekst;
+        if (statusItems.TryGetValue(key, out var item)) item.Text = text;
     }
 
-    void Herlaad()
+    void Reload()
     {
-        Config nieuw;
-        try { nieuw = Config.Laad(); }
-        catch (IOException) when (File.Exists(Config.Pad))
+        Config fresh;
+        try { fresh = Config.Load(); }
+        catch (IOException) when (File.Exists(Config.FilePath))
         {
-            herlaadTimer.Start();   // bestand nog in gebruik door de editor, zo nog eens proberen
+            reloadTimer.Start();   // file still in use by the editor, try again shortly
             return;
         }
         catch (Exception e)
         {
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalConfigFout, Kort(e.Message, 150)), ToolTipIcon.Warning);
+            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonConfigError, Shorten(e.Message, 150)), ToolTipIcon.Warning);
             return;
         }
-        cfg = nieuw;
-        perAgenda.Clear();
-        foutGemeld.Clear();
-        PasConfigToe();
-        tray.ShowBalloonTip(3000, "Meeting Alarm", T.BalHerladen, ToolTipIcon.Info);
-        _ = VerversAlles();
+        cfg = fresh;
+        perCalendar.Clear();
+        errorReported.Clear();
+        ApplyConfig();
+        tray.ShowBalloonTip(3000, "Meeting Alarm", T.BalloonReloaded, ToolTipIcon.Info);
+        _ = RefreshCalendars();
         _ = PollChats();
     }
 
-    // ------------------------------------------------------------ Agenda's
+    // ------------------------------------------------------------ Calendars
 
-    async Task VerversLoop()
+    async Task CalendarLoop()
     {
         while (!stop.IsCancellationRequested)
         {
-            await VerversAlles();
+            await RefreshCalendars();
             try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(30, cfg.Meetings.RefreshSeconds)), stop.Token); }
             catch (TaskCanceledException) { break; }
         }
     }
 
-    async Task VerversAlles()
+    async Task RefreshCalendars()
     {
-        foreach (var a in cfg.ActieveAgendas.ToList())
+        foreach (var c in cfg.ActiveCalendars.ToList())
         {
-            var sleutel = a;
-            if (!Uri.TryCreate(a.Url, UriKind.Absolute, out _))
+            if (!Uri.TryCreate(c.Url, UriKind.Absolute, out _))
             {
-                ZetStatus(sleutel, F(T.StatusGeenIcs, a.Name));
+                SetStatus(c, F(T.StatusNoIcsLink, c.Name));
                 continue;
             }
             try
             {
-                var ics = await http.GetStringAsync(a.Url, stop.Token);
-                var lijst = await Task.Run(() => Agenda.Parse(a, ics));
-                if (!cfg.Calendars.Contains(a)) continue;   // config is intussen herladen
-                perAgenda[a] = lijst;   // alleen vervangen bij succes
-                ZetStatus(sleutel, F(T.StatusAgendaOk, a.Name, DateTime.Now, lijst.Count));
-                foutGemeld.Remove(sleutel);
+                var ics = await http.GetStringAsync(c.Url, stop.Token);
+                var meetings = await Task.Run(() => IcsCalendar.Parse(c, ics));
+                if (!cfg.Calendars.Contains(c)) continue;   // config was reloaded in the meantime
+                perCalendar[c] = meetings;   // only replace on success
+                SetStatus(c, F(T.StatusCalendarOk, c.Name, DateTime.Now, meetings.Count));
+                errorReported.Remove(c);
             }
             catch (Exception e) when (!stop.IsCancellationRequested)
             {
-                if (!cfg.Calendars.Contains(a)) continue;
-                ZetStatus(sleutel, F(T.StatusFout, a.Name, DateTime.Now, Kort(e.Message, 70)));
-                if (foutGemeld.Add(sleutel))
-                    tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalAgendaMislukt, a.Name, Kort(e.Message, 150)), ToolTipIcon.Warning);
+                if (!cfg.Calendars.Contains(c)) continue;
+                SetStatus(c, F(T.StatusError, c.Name, DateTime.Now, Shorten(e.Message, 70)));
+                if (errorReported.Add(c))
+                    tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonCalendarFailed, c.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
             }
         }
         Check();
     }
 
-    static string Kort(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+    static string Shorten(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 
     void Check()
     {
-        var nu = DateTime.Now;
-        foreach (var m in perAgenda.Values.SelectMany(x => x))
+        var now = DateTime.Now;
+        foreach (var m in perCalendar.Values.SelectMany(x => x))
         {
-            var sec = (m.Start - nu).TotalSeconds;
-            if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -120 && getoond.Add(m.Sleutel))
-                new MeetingPopup(m, cfg).Toon();
+            var sec = (m.Start - now).TotalSeconds;
+            if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -120 && shown.Add(m.Key))
+                new MeetingPopup(m, cfg).ShowPopup();
         }
     }
 
-    void ToonKomende()
+    void ShowUpcoming()
     {
-        var regels = perAgenda.Values.SelectMany(x => x)
+        var lines = perCalendar.Values.SelectMany(x => x)
             .Where(m => m.Start > DateTime.Now.AddMinutes(-5))
             .OrderBy(m => m.Start).Take(20)
-            .Select(m => F("{0:ddd} {0:t}   [{1}]   {2}", m.Start, m.Agenda.Name, m.Titel))
+            .Select(m => F("{0:ddd} {0:t}   [{1}]   {2}", m.Start, m.Calendar.Name, m.Title))
             .ToList();
-        MessageBox.Show(regels.Count > 0 ? string.Join("\n", regels) : T.GeenMeetings, T.KomendeTitel);
+        MessageBox.Show(lines.Count > 0 ? string.Join("\n", lines) : T.NoMeetings, T.UpcomingTitle);
     }
 
     void TestPopup()
     {
-        var agenda = cfg.Calendars.FirstOrDefault() ?? new CalendarConfig { Name = "Test" };
-        new MeetingPopup(new Meeting(agenda, T.TestMeeting, DateTime.Now.AddSeconds(75),
-            "test-" + Guid.NewGuid(), "https://teams.microsoft.com/l/meetup-join/test"), cfg).Toon();
+        var calendar = cfg.Calendars.FirstOrDefault() ?? new CalendarConfig { Name = "Test" };
+        new MeetingPopup(new Meeting(calendar, T.ExampleMeeting, DateTime.Now.AddSeconds(75),
+            "test-" + Guid.NewGuid(), "https://teams.microsoft.com/l/meetup-join/test"), cfg).ShowPopup();
     }
 
-    // ------------------------------------------------------------ Teams-chats
+    // ------------------------------------------------------------ Teams chats
 
     async Task ChatLoop()
     {
@@ -251,107 +250,106 @@ sealed class AlarmContext : ApplicationContext
 
     async Task PollChats()
     {
-        if (chatBezig) return;
-        chatBezig = true;
+        if (chatPolling) return;
+        chatPolling = true;
         try
         {
-            var alle = new List<ChatRij>();
+            var all = new List<ChatRow>();
             foreach (var p in pollers.ToList())
             {
-                var sleutel = p.Job;
-                if (p.InloggenNodig)
+                if (p.NeedsSignIn)
                 {
-                    alle.AddRange(p.Vorige);
+                    all.AddRange(p.Previous);
                     continue;
                 }
                 try
                 {
-                    alle.AddRange(await p.Poll(stop.Token));
-                    ZetStatus(sleutel, F(T.StatusOk, TeamsNaam(p), DateTime.Now));
-                    foutGemeld.Remove(sleutel);
+                    all.AddRange(await p.Poll(stop.Token));
+                    SetStatus(p.Job, F(T.StatusOk, TeamsName(p), DateTime.Now));
+                    errorReported.Remove(p.Job);
                 }
                 catch (MsalUiRequiredException)
                 {
-                    alle.AddRange(p.Vorige);
-                    MoetInloggen(p);
+                    all.AddRange(p.Previous);
+                    MustSignIn(p);
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
-                    alle.AddRange(p.Vorige);
-                    ZetStatus(sleutel, F(T.StatusFout, TeamsNaam(p), DateTime.Now, Kort(e.Message, 70)));
-                    if (foutGemeld.Add(sleutel))
-                        tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalChatsMislukt, p.Job.Name, Kort(e.Message, 150)), ToolTipIcon.Warning);
+                    all.AddRange(p.Previous);
+                    SetStatus(p.Job, F(T.StatusError, TeamsName(p), DateTime.Now, Shorten(e.Message, 70)));
+                    if (errorReported.Add(p.Job))
+                        tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonChatsFailed, p.Job.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
                 }
             }
-            chatRijen = alle;
-            chatPopup.Werk(chatRijen);
+            chatRows = all;
+            chatPopup.ShowRows(chatRows);
         }
         finally
         {
-            chatBezig = false;
+            chatPolling = false;
         }
     }
 
-    void MoetInloggen(ChatPoller p)
+    void MustSignIn(ChatPoller p)
     {
-        p.InloggenNodig = true;
-        ZetStatus(p.Job, F(T.StatusInloggenVereist, TeamsNaam(p)));
-        if (loginItems.TryGetValue(p.Job, out var item)) item.Visible = true;
+        p.NeedsSignIn = true;
+        SetStatus(p.Job, F(T.StatusSignInRequired, TeamsName(p)));
+        if (signInItems.TryGetValue(p.Job, out var item)) item.Visible = true;
 
-        // De allereerste keer meteen het inlogvenster; daarna nooit ongevraagd, alleen via het menu.
-        if (p.NooitIngelogd && autoInlogGeprobeerd.Add($"{p.Job.Tenant}|{p.Job.LoginHint}"))
-            _ = Inloggen(p);
-        else if (foutGemeld.Add(p.Job))
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalOpnieuwInloggen, p.Job.Name), ToolTipIcon.Warning);
+        // The very first time, open the sign-in window right away; after that never unasked, only via the menu.
+        if (p.NeverSignedIn && autoSignInTried.Add($"{p.Job.Tenant}|{p.Job.LoginHint}"))
+            _ = SignIn(p);
+        else if (errorReported.Add(p.Job))
+            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInAgain, p.Job.Name), ToolTipIcon.Warning);
     }
 
-    async Task Inloggen(ChatPoller p)
+    async Task SignIn(ChatPoller p)
     {
         try
         {
-            await p.Inloggen();
-            if (loginItems.TryGetValue(p.Job, out var item)) item.Visible = false;
-            foutGemeld.Remove(p.Job);
-            ZetStatus(p.Job, F(T.StatusIngelogd, TeamsNaam(p)));
+            await p.SignIn();
+            if (signInItems.TryGetValue(p.Job, out var item)) item.Visible = false;
+            errorReported.Remove(p.Job);
+            SetStatus(p.Job, F(T.StatusSignedIn, TeamsName(p)));
             await PollChats();
         }
         catch (Exception e)
         {
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalInloggenMislukt, p.Job.Name, Kort(e.Message, 150)), ToolTipIcon.Warning);
+            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInFailed, p.Job.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
         }
     }
 
-    void Gezien(IReadOnlyList<ChatRij> rijen)
+    void Seen(IReadOnlyList<ChatRow> rows)
     {
-        foreach (var r in rijen.Where(r => !r.Sleutel.StartsWith("test|")))
-            chatState.Ack(r.Sleutel, r.Nieuwste);
-        var weg = rijen.Select(r => r.Sleutel).ToHashSet();
-        foreach (var p in pollers) p.Vergeet(weg);
-        chatRijen = chatRijen.Where(r => !weg.Contains(r.Sleutel)).ToList();
-        chatPopup.Werk(chatRijen);
+        foreach (var r in rows.Where(r => !r.Key.StartsWith("test|")))
+            chatState.Ack(r.Key, r.Newest);
+        var gone = rows.Select(r => r.Key).ToHashSet();
+        foreach (var p in pollers) p.Forget(gone);
+        chatRows = chatRows.Where(r => !gone.Contains(r.Key)).ToList();
+        chatPopup.ShowRows(chatRows);
     }
 
     void TestChatPopup()
     {
-        // Voorbeeldrij (wordt niet bewaard); verdwijnt bij de volgende poll of met ✓.
+        // Example row (not persisted); disappears at the next poll or with ✓.
         var job = cfg.Teams.FirstOrDefault() ?? new TeamsConfig { Name = "Test" };
-        chatRijen = [.. chatRijen.Where(r => !r.Sleutel.StartsWith("test|")),
-            new ChatRij(job, "test|voorbeeld", T.VoorbeeldCollega, 3, DateTimeOffset.Now, null)];
-        chatPopup.Werk(chatRijen);
+        chatRows = [.. chatRows.Where(r => !r.Key.StartsWith("test|")),
+            new ChatRow(job, "test|example", T.ExampleColleague, 3, DateTimeOffset.Now, null)];
+        chatPopup.ShowRows(chatRows);
     }
 
-    void SchermenGewijzigd(object? sender, EventArgs e)
+    void DisplaysChanged(object? sender, EventArgs e)
     {
-        MeetingPopup.Herplaats();
-        chatPopup.Herplaats();
+        MeetingPopup.Reposition();
+        chatPopup.Reposition();
     }
 
     protected override void ExitThreadCore()
     {
-        SystemEvents.DisplaySettingsChanged -= SchermenGewijzigd;
+        SystemEvents.DisplaySettingsChanged -= DisplaysChanged;
         stop.Cancel();
         watcher.Dispose();
-        herlaadTimer.Stop();
+        reloadTimer.Stop();
         checkTimer.Stop();
         tray.Visible = false;
         tray.Dispose();

@@ -3,20 +3,20 @@ using Microsoft.Win32;
 static class Autostart
 {
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    const string Naam = "MeetingAlarm";
+    const string ValueName = "MeetingAlarm";
 
-    public static bool Aan
+    public static bool Enabled
     {
         get
         {
             using var k = Registry.CurrentUser.OpenSubKey(RunKey);
-            return k?.GetValue(Naam) is string;
+            return k?.GetValue(ValueName) is string;
         }
         set
         {
             using var k = Registry.CurrentUser.CreateSubKey(RunKey);
-            if (value) k.SetValue(Naam, $"\"{Environment.ProcessPath}\"");
-            else k.DeleteValue(Naam, false);
+            if (value) k.SetValue(ValueName, $"\"{Environment.ProcessPath}\"");
+            else k.DeleteValue(ValueName, false);
         }
     }
 }

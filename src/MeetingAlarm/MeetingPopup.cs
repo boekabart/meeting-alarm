@@ -2,47 +2,47 @@ using System.Diagnostics;
 using System.Media;
 using WinTimer = System.Windows.Forms.Timer;
 
-sealed class MeetingPopup : PopupBasis
+sealed class MeetingPopup : PopupBase
 {
     static readonly List<MeetingPopup> Open = new();
 
-    /// <summary>Anker voor de stapel meeting-popups; na wijzigen <see cref="Herplaats"/> aanroepen.</summary>
-    public static Position Positie { get; set; } = Position.BottomRight;
-    public static int Scherm { get; set; }
+    /// <summary>Anchor for the stack of meeting popups; call <see cref="Reposition"/> after changing it.</summary>
+    public static Position Position { get; set; } = Position.BottomRight;
+    public static int DisplayNumber { get; set; }
 
-    readonly Meeting m;
+    readonly Meeting meeting;
     readonly Config cfg;
-    readonly Color kleur;
-    readonly FlowLayoutPanel binnen;
-    readonly Label lblTijd;
+    readonly Color color;
+    readonly FlowLayoutPanel inner;
+    readonly Label timeLabel;
     readonly WinTimer tick = new() { Interval = 1000 };
-    bool knipperAan;
+    bool flashOn;
 
-    public MeetingPopup(Meeting m, Config cfg)
+    public MeetingPopup(Meeting meeting, Config cfg)
     {
-        this.m = m;
+        this.meeting = meeting;
         this.cfg = cfg;
-        kleur = Kleur.Parse(m.Agenda.Color);
-        int tekstBreedte = S(400);
+        color = ColorParser.Parse(meeting.Calendar.Color);
+        int textWidth = S(400);
 
-        binnen = new FlowLayoutPanel
+        inner = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = kleur,
+            BackColor = color,
             Padding = new Padding(S(14), S(10), S(14), S(10)),
             Margin = Padding.Empty,
         };
 
-        binnen.Controls.Add(Tekst(m.Agenda.Name.ToUpperInvariant(), 10, tekstBreedte));
-        binnen.Controls.Add(Tekst(m.Titel, 15, tekstBreedte));
-        lblTijd = Tekst("", 20, tekstBreedte);
-        lblTijd.Margin = new Padding(3, S(4), 3, S(8));
-        binnen.Controls.Add(lblTijd);
+        inner.Controls.Add(MakeLabel(meeting.Calendar.Name.ToUpperInvariant(), 10, textWidth));
+        inner.Controls.Add(MakeLabel(meeting.Title, 15, textWidth));
+        timeLabel = MakeLabel("", 20, textWidth);
+        timeLabel.Margin = new Padding(3, S(4), 3, S(8));
+        inner.Controls.Add(timeLabel);
 
-        var knoppen = new FlowLayoutPanel
+        var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
@@ -50,63 +50,63 @@ sealed class MeetingPopup : PopupBasis
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
         };
-        if (m.Link is not null)
-            knoppen.Controls.Add(Knop(T.Deelnemen, () =>
+        if (meeting.Link is not null)
+            buttons.Controls.Add(MakeButton(T.Join, () =>
             {
-                Process.Start(new ProcessStartInfo(m.Link) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(meeting.Link) { UseShellExecute = true });
                 Close();
             }));
-        knoppen.Controls.Add(Knop(T.Straks, Snooze));
-        knoppen.Controls.Add(Knop(T.Sluiten, Close));
-        binnen.Controls.Add(knoppen);
+        buttons.Controls.Add(MakeButton(T.Later, Snooze));
+        buttons.Controls.Add(MakeButton(T.CloseButton, Close));
+        inner.Controls.Add(buttons);
 
-        Controls.Add(binnen);
-        tick.Tick += (_, _) => Tik();
+        Controls.Add(inner);
+        tick.Tick += (_, _) => UpdateCountdown();
     }
 
-    public void Toon()
+    public void ShowPopup()
     {
-        _ = Handle;          // forceer layout zodat de hoogte klopt vóór positioneren
+        _ = Handle;          // force layout so the height is right before positioning
         PerformLayout();
         Open.Add(this);
-        Herplaats();
+        Reposition();
         Show();
-        Speel();
-        Tik();
+        PlaySound();
+        UpdateCountdown();
         tick.Start();
     }
 
-    void Speel()
+    void PlaySound()
     {
         if (cfg.Sound) SystemSounds.Exclamation.Play();
     }
 
-    public static void Herplaats()
+    public static void Reposition()
     {
-        var punten = Plaatsing.Bereken(Positie, Plaatsing.Werkgebied(Scherm), Open.Select(p => p.Size).ToList());
+        var points = Placement.Compute(Position, Placement.WorkingArea(DisplayNumber), Open.Select(p => p.Size).ToList());
         for (int i = 0; i < Open.Count; i++)
-            Open[i].Location = punten[i];
+            Open[i].Location = points[i];
     }
 
-    void Tik()
+    void UpdateCountdown()
     {
-        var sec = (int)Math.Ceiling((m.Start - DateTime.Now).TotalSeconds);
-        bool knipperen;
+        var sec = (int)Math.Ceiling((meeting.Start - DateTime.Now).TotalSeconds);
+        bool flash;
         if (sec > 0)
         {
-            lblTijd.Text = F(T.StartOver, sec / 60, sec % 60, m.Start);
-            knipperen = sec <= 60;   // laatste minuut knipperen
+            timeLabel.Text = F(T.StartsIn, sec / 60, sec % 60, meeting.Start);
+            flash = sec <= 60;   // flash during the last minute
         }
         else
         {
             int min = -sec / 60;
             if (cfg.Meetings.AutoCloseAfterMinutes > 0 && min >= cfg.Meetings.AutoCloseAfterMinutes) { Close(); return; }
-            lblTijd.Text = min == 0 ? T.NuBegonnen : F(T.BegonnenGeleden, min);
-            knipperen = true;
+            timeLabel.Text = min == 0 ? T.StartedNow : F(T.StartedAgo, min);
+            flash = true;
         }
-        knipperAan = knipperen && !knipperAan;
-        binnen.BackColor = knipperAan ? KnipperKleur : kleur;
-        HouBovenop();
+        flashOn = flash && !flashOn;
+        inner.BackColor = flashOn ? FlashColor : color;
+        KeepOnTop();
     }
 
     void Snooze()
@@ -114,28 +114,28 @@ sealed class MeetingPopup : PopupBasis
         tick.Stop();
         Open.Remove(this);
         Hide();
-        Herplaats();
+        Reposition();
 
-        var wacht = new WinTimer { Interval = Math.Max(5, cfg.Meetings.SnoozeSeconds) * 1000 };
-        wacht.Tick += (_, _) =>
+        var wait = new WinTimer { Interval = Math.Max(5, cfg.Meetings.SnoozeSeconds) * 1000 };
+        wait.Tick += (_, _) =>
         {
-            wacht.Dispose();
+            wait.Dispose();
             if (IsDisposed) return;
             Open.Add(this);
-            Herplaats();
+            Reposition();
             Show();
-            Speel();
-            Tik();
+            PlaySound();
+            UpdateCountdown();
             tick.Start();
         };
-        wacht.Start();
+        wait.Start();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         tick.Dispose();
         Open.Remove(this);
-        Herplaats();
+        Reposition();
         base.OnFormClosed(e);
     }
 }

@@ -3,22 +3,22 @@ using System.Diagnostics;
 
 static class TeamsLink
 {
-    /// <summary>Zelfde vorm als Graph's chat.webUrl; gebruikt als Graph die niet meestuurt.</summary>
-    public static string VoorChat(string tenantId, string chatId) =>
+    /// <summary>Same shape as Graph's chat.webUrl; used when Graph doesn't send one.</summary>
+    public static string ForChat(string tenantId, string chatId) =>
         $"https://teams.microsoft.com/l/chat/{Uri.EscapeDataString(chatId)}/0?tenantId={Uri.EscapeDataString(tenantId)}";
 
-    /// <summary>https-teamslink → msteams:-link, zodat de Teams-app hem opent in plaats van eerst de browser.</summary>
-    public static string? NaarApp(string webUrl) =>
+    /// <summary>https Teams link → msteams: link, so the Teams app opens it instead of the browser first.</summary>
+    public static string? ToApp(string webUrl) =>
         Uri.TryCreate(webUrl, UriKind.Absolute, out var u) &&
         (u.Host.Equals("teams.microsoft.com", StringComparison.OrdinalIgnoreCase) ||
          u.Host.Equals("teams.cloud.microsoft", StringComparison.OrdinalIgnoreCase))
             ? "msteams:" + u.PathAndQuery
             : null;
 
-    /// <summary>Open in de Teams-app; lukt dat niet (geen app / protocol niet geregistreerd), dan in de browser.</summary>
+    /// <summary>Open in the Teams app; if that fails (no app / protocol not registered), in the browser.</summary>
     public static void Open(string webUrl)
     {
-        if (NaarApp(webUrl) is { } app)
+        if (ToApp(webUrl) is { } app)
         {
             try
             {

@@ -1,9 +1,9 @@
 using System.Text.Json;
 
-/// <summary>Per chat het tijdstip van het laatst geackte bericht. Blijft bewaard over herstarts heen.</summary>
+/// <summary>Per chat, the time of the last acked message. Persisted across restarts.</summary>
 sealed class ChatState
 {
-    static string Pad => Path.Combine(
+    static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MeetingAlarm", "chats.json");
 
     readonly Dictionary<string, DateTimeOffset> acks;
@@ -12,25 +12,25 @@ sealed class ChatState
     {
         try
         {
-            acks = JsonSerializer.Deserialize<Dictionary<string, DateTimeOffset>>(File.ReadAllText(Pad)) ?? new();
+            acks = JsonSerializer.Deserialize<Dictionary<string, DateTimeOffset>>(File.ReadAllText(FilePath)) ?? new();
         }
         catch (Exception e) when (e is IOException or JsonException)
         {
-            acks = new();   // nog geen (of onleesbaar) bestand: alles telt vanaf Teams' eigen gelezen-markering
+            acks = new();   // no (or unreadable) file yet: everything counts from Teams' own read marker
         }
     }
 
-    public static string Sleutel(string tenantId, string chatId) => $"{tenantId}|{chatId}";
+    public static string Key(string tenantId, string chatId) => $"{tenantId}|{chatId}";
 
-    public DateTimeOffset? AckedAt(string sleutel) => acks.TryGetValue(sleutel, out var t) ? t : null;
+    public DateTimeOffset? AckedAt(string key) => acks.TryGetValue(key, out var t) ? t : null;
 
-    /// <summary>Ack tot en met <paramref name="tot"/>. Gaat nooit terug in de tijd.</summary>
-    public void Ack(string sleutel, DateTimeOffset tot)
+    /// <summary>Ack up to and including <paramref name="until"/>. Never goes back in time.</summary>
+    public void Ack(string key, DateTimeOffset until)
     {
-        if (acks.TryGetValue(sleutel, out var oud) && oud >= tot) return;
-        acks[sleutel] = tot;
-        var tmp = Pad + ".tmp";
+        if (acks.TryGetValue(key, out var old) && old >= until) return;
+        acks[key] = until;
+        var tmp = FilePath + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(acks, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(tmp, Pad, overwrite: true);
+        File.Move(tmp, FilePath, overwrite: true);
     }
 }

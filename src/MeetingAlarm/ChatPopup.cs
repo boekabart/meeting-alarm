@@ -1,128 +1,127 @@
-using System.Diagnostics;
 using System.Media;
 using WinTimer = System.Windows.Forms.Timer;
 
-/// <summary>Eén venster met alle chats die ongelezen én niet-geackte berichten hebben. Alleen zichtbaar als er iets is.</summary>
-sealed class ChatPopup : PopupBasis
+/// <summary>One window with every chat that has unread and un-acked messages. Only visible when there is something.</summary>
+sealed class ChatPopup : PopupBase
 {
-    const int MaxRijen = 10;
-    static readonly Color Achtergrond = Color.FromArgb(38, 50, 56);
+    const int MaxRows = 10;
+    static readonly Color Background = Color.FromArgb(38, 50, 56);
 
-    readonly FlowLayoutPanel binnen;
-    readonly WinTimer knipper = new() { Interval = 500 };
+    readonly FlowLayoutPanel inner;
+    readonly WinTimer flashTimer = new() { Interval = 500 };
     readonly ToolTip tip = new();
-    Dictionary<string, int> vorige = new();
-    string handtekening = "";
-    int knipperTikken;
-    Position positie = Position.MiddleRight;
-    int scherm;
+    Dictionary<string, int> previousCounts = new();
+    string signature = "";
+    int flashTicks;
+    Position position = Position.MiddleRight;
+    int displayNumber;
 
-    /// <summary>De gebruiker heeft deze rijen gezien (✓ of "Alles gezien").</summary>
-    public event Action<IReadOnlyList<ChatRij>>? Gezien;
+    /// <summary>The user has seen these rows (✓ or "Mark all as seen").</summary>
+    public event Action<IReadOnlyList<ChatRow>>? Seen;
 
-    public int KnipperSeconden { get; set; } = 3;
-    public bool Geluid { get; set; } = true;
+    public int FlashSeconds { get; set; } = 3;
+    public bool Sound { get; set; } = true;
 
-    public Position Positie
+    public Position Position
     {
-        get => positie;
-        set { positie = value; Herplaats(); }
+        get => position;
+        set { position = value; Reposition(); }
     }
 
-    public int Scherm
+    public int DisplayNumber
     {
-        get => scherm;
-        set { scherm = value; Herplaats(); }
+        get => displayNumber;
+        set { displayNumber = value; Reposition(); }
     }
 
     public ChatPopup()
     {
-        binnen = new FlowLayoutPanel
+        inner = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Achtergrond,
+            BackColor = Background,
             Padding = new Padding(S(12), S(8), S(12), S(8)),
             Margin = Padding.Empty,
         };
-        Controls.Add(binnen);
+        Controls.Add(inner);
 
-        knipper.Tick += (_, _) =>
+        flashTimer.Tick += (_, _) =>
         {
-            knipperTikken--;
-            binnen.BackColor = knipperTikken > 0 && knipperTikken % 2 == 1 ? KnipperKleur : Achtergrond;
-            if (knipperTikken <= 0) knipper.Stop();
-            HouBovenop();
+            flashTicks--;
+            inner.BackColor = flashTicks > 0 && flashTicks % 2 == 1 ? FlashColor : Background;
+            if (flashTicks <= 0) flashTimer.Stop();
+            KeepOnTop();
         };
     }
 
-    /// <summary>Toon de actuele stand. Knippert als er een chat bij kwam of een teller omhoog ging.</summary>
-    public void Werk(IReadOnlyList<ChatRij> rijen)
+    /// <summary>Show the current state. Flashes when a chat was added or a count went up.</summary>
+    public void ShowRows(IReadOnlyList<ChatRow> rows)
     {
-        bool meer = rijen.Any(r => !vorige.TryGetValue(r.Sleutel, out var oud) || r.Aantal > oud);
-        vorige = rijen.ToDictionary(r => r.Sleutel, r => r.Aantal);
+        bool more = rows.Any(r => !previousCounts.TryGetValue(r.Key, out var old) || r.Count > old);
+        previousCounts = rows.ToDictionary(r => r.Key, r => r.Count);
 
-        var nieuw = Cultuur.Name + "\n" + string.Join("\n", rijen.Select(r => $"{r.Sleutel}|{r.Aantal}|{r.Naam}"));   // taalwissel = opnieuw opbouwen
-        if (nieuw != handtekening)
+        var current = Culture.Name + "\n" + string.Join("\n", rows.Select(r => $"{r.Key}|{r.Count}|{r.Name}"));   // language switch = rebuild
+        if (current != signature)
         {
-            handtekening = nieuw;
-            Bouw(rijen);
+            signature = current;
+            Build(rows);
         }
 
-        if (rijen.Count == 0)
+        if (rows.Count == 0)
         {
             Hide();
             return;
         }
         if (!Visible)
         {
-            Herplaats();
+            Reposition();
             Show();
         }
-        HouBovenop();
-        if (meer) Knipper();
+        KeepOnTop();
+        if (more) Flash();
     }
 
-    void Knipper()
+    void Flash()
     {
-        knipperTikken = Math.Max(1, KnipperSeconden) * 2;
-        knipper.Start();
-        if (Geluid) SystemSounds.Exclamation.Play();
+        flashTicks = Math.Max(1, FlashSeconds) * 2;
+        flashTimer.Start();
+        if (Sound) SystemSounds.Exclamation.Play();
     }
 
-    void Bouw(IReadOnlyList<ChatRij> rijen)
+    void Build(IReadOnlyList<ChatRow> rows)
     {
         SuspendLayout();
-        foreach (var c in binnen.Controls.Cast<Control>().ToList()) c.Dispose();
+        foreach (var c in inner.Controls.Cast<Control>().ToList()) c.Dispose();
 
-        int breedte = S(380);
-        binnen.Controls.Add(Tekst(F(T.ChatKop, rijen.Sum(r => r.Aantal)), 11, breedte));
-        foreach (var r in rijen.OrderByDescending(r => r.Nieuwste).Take(MaxRijen))
-            binnen.Controls.Add(Rij(r));
-        if (rijen.Count > MaxRijen)
-            binnen.Controls.Add(Tekst(F(T.AndereChats, rijen.Count - MaxRijen), 9, breedte));
-        binnen.Controls.Add(Knop(T.AllesGezien, () => Gezien?.Invoke(rijen)));
+        int width = S(380);
+        inner.Controls.Add(MakeLabel(F(T.ChatHeader, rows.Sum(r => r.Count)), 11, width));
+        foreach (var r in rows.OrderByDescending(r => r.Newest).Take(MaxRows))
+            inner.Controls.Add(MakeRow(r));
+        if (rows.Count > MaxRows)
+            inner.Controls.Add(MakeLabel(F(T.MoreChats, rows.Count - MaxRows), 9, width));
+        inner.Controls.Add(MakeButton(T.MarkAllSeen, () => Seen?.Invoke(rows)));
 
         ResumeLayout();
         PerformLayout();
     }
 
-    Control Rij(ChatRij r)
+    Control MakeRow(ChatRow r)
     {
-        var rij = new TableLayoutPanel
+        var row = new TableLayoutPanel
         {
             ColumnCount = 3,
             RowCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Kleur.Parse(r.Job.Color),
+            BackColor = ColorParser.Parse(r.Job.Color),
             Margin = new Padding(0, S(3), 0, S(3)),
             Padding = new Padding(S(8), S(4), S(4), S(4)),
         };
 
-        var tekst = new FlowLayoutPanel
+        var text = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
@@ -130,42 +129,42 @@ sealed class ChatPopup : PopupBasis
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
         };
-        tekst.Controls.Add(Tekst(r.Job.Name.ToUpperInvariant(), 8, S(250)));
-        var naam = Tekst(r.Naam, 12, S(250));
-        naam.AutoSize = false;
-        naam.AutoEllipsis = true;
-        naam.Size = new Size(S(250), S(26));
+        text.Controls.Add(MakeLabel(r.Job.Name.ToUpperInvariant(), 8, S(250)));
+        var name = MakeLabel(r.Name, 12, S(250));
+        name.AutoSize = false;
+        name.AutoEllipsis = true;
+        name.Size = new Size(S(250), S(26));
         if (r.WebUrl is { } url)
         {
-            naam.Cursor = Cursors.Hand;
-            naam.Font = new Font(naam.Font, FontStyle.Bold | FontStyle.Underline);
-            naam.Click += (_, _) => TeamsLink.Open(url);   // openen = niet geackt
+            name.Cursor = Cursors.Hand;
+            name.Font = new Font(name.Font, FontStyle.Bold | FontStyle.Underline);
+            name.Click += (_, _) => TeamsLink.Open(url);   // opening does not ack
         }
-        tekst.Controls.Add(naam);
+        text.Controls.Add(name);
 
-        var aantal = Tekst(r.Aantal >= ChatTeller.MaxBerichten ? $"{ChatTeller.MaxBerichten}+" : r.Aantal.ToString(), 18, S(60));
-        aantal.TextAlign = ContentAlignment.MiddleRight;
+        var count = MakeLabel(r.Count >= ChatCounter.MaxMessages ? $"{ChatCounter.MaxMessages}+" : r.Count.ToString(), 18, S(60));
+        count.TextAlign = ContentAlignment.MiddleRight;
 
-        var ok = Knop("✓", () => Gezien?.Invoke([r]));
-        tip.SetToolTip(ok, T.GezienTip);
+        var ok = MakeButton("✓", () => Seen?.Invoke([r]));
+        tip.SetToolTip(ok, T.SeenTooltip);
 
-        rij.Controls.Add(tekst, 0, 0);
-        rij.Controls.Add(aantal, 1, 0);
-        rij.Controls.Add(ok, 2, 0);
-        return rij;
+        row.Controls.Add(text, 0, 0);
+        row.Controls.Add(count, 1, 0);
+        row.Controls.Add(ok, 2, 0);
+        return row;
     }
 
-    public void Herplaats() => Location = Plaatsing.Bereken(positie, Plaatsing.Werkgebied(scherm), [Size])[0];
+    public void Reposition() => Location = Placement.Compute(position, Placement.WorkingArea(displayNumber), [Size])[0];
 
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
-        Herplaats();   // groeit/krimpt met het aantal rijen; blijft aan zijn anker hangen
+        Reposition();   // grows/shrinks with the number of rows; stays attached to its anchor
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        // Alt+F4 e.d.: niet weggooien; alleen "gezien" laat hem verdwijnen.
+        // Alt+F4 and such: don't throw it away; only "seen" makes it go away.
         if (e.CloseReason == CloseReason.UserClosing) e.Cancel = true;
         base.OnFormClosing(e);
     }

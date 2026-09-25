@@ -124,8 +124,7 @@ Cost: 1 request per tenant per poll, plus 1 or 2 per chat that actually changed.
 ## 6. Config (`config.json`, v2)
 
 Calendars and Teams tenants are **separate lists**: one tenant can have several ICS calendars, and vice versa.
-Keys are English. A v1 file (Dutch keys, one `Agendas` list) is migrated automatically on load. The original is kept as
-`config.v1.json`, and each old job becomes a calendar entry (if it had a `Url`) and/or a Teams entry (if it had a `Tenant`).
+Keys are English. (The Dutch v1 format and its auto-migration have been removed.)
 
 ```json
 {
@@ -203,10 +202,11 @@ The single-file version is kept as git tag `single-file`. The app is now `Meetin
 
 ```
 src/MeetingAlarm/            WinExe, net10.0-windows, single-file publish (incl. WAM native lib)
-  Program.cs  Config.cs  AlarmContext.cs  Agenda.cs  Autostart.cs
-  Plaatsing.cs (anchor/stack math)  PopupBasis.cs  MeetingPopup.cs  ChatPopup.cs
-  Teams/ChatPoller.cs (MSAL + Graph via HttpClient)  Teams/ChatTeller.cs (pure counting)  Teams/ChatState.cs (acks)
-tests/MeetingAlarm.Tests/    xunit: ChatTeller + Plaatsing
+  Program.cs  Config.cs  AlarmContext.cs  IcsCalendar.cs  Autostart.cs  ColorParser.cs  Localization.cs
+  Placement.cs (anchor/stack math)  PopupBase.cs  MeetingPopup.cs  ChatPopup.cs
+  Teams/ChatPoller.cs (MSAL + Graph via HttpClient)  Teams/ChatCounter.cs (pure counting)
+  Teams/ChatState.cs (acks)  Teams/TeamsLink.cs (msteams: deep links)
+tests/MeetingAlarm.Tests/    xunit: counting, placement, colors, localization, Teams links
 ```
 
 Graph is called with plain `HttpClient` + `JsonDocument`, not the Graph SDK: four GET calls don't justify that dependency.

@@ -9,9 +9,9 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <!-- WAM-broker (msalruntime.dll) mee in de single-file exe -->
+    <!-- Bundle the WAM broker (msalruntime.dll) into the single-file exe -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <!-- Geen designer in gebruik: serialisatie-attributen op Form-properties zijn zinloos -->
+    <!-- No designer in use: serialization attributes on Form properties are pointless -->
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>
 
