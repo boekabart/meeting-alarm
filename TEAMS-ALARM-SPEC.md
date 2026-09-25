@@ -152,6 +152,9 @@ Keys are English. A v1 file (Dutch keys, one `Agendas` list) is migrated automat
 - `Language`: `en-US`, `en-GB`, `nl-NL`, `sv-SE` (or short: `nl`, `sv`, `en`). Blank means the Windows display language.
   Other variants of a language fall back to the closest one (nl-BE → nl-NL, en-AU → en-GB), and anything else falls back to en-US.
   Times use the chosen culture's short time format (en-US "2:03 PM", the others "14:03").
+- `Screen` (in `Meetings` and `Chats`): `0` (the default) = main screen. `n` = Windows display number n
+  (Settings → Display → Identify), falling back to the main screen if that display isn't there. Popups move along when screens are plugged in or out.
+- `Meetings.AutoCloseAfterMinutes`: `0` = never close by itself.
 - Everything reloads live (FileSystemWatcher), including positions and language.
 
 ## 7. UI

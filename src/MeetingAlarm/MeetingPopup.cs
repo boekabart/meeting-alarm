@@ -8,6 +8,7 @@ sealed class MeetingPopup : PopupBasis
 
     /// <summary>Anker voor de stapel meeting-popups; na wijzigen <see cref="Herplaats"/> aanroepen.</summary>
     public static Position Positie { get; set; } = Position.BottomRight;
+    public static int Scherm { get; set; }
 
     readonly Meeting m;
     readonly Config cfg;
@@ -82,7 +83,7 @@ sealed class MeetingPopup : PopupBasis
 
     public static void Herplaats()
     {
-        var punten = Plaatsing.Bereken(Positie, Werkgebied, Open.Select(p => p.Size).ToList());
+        var punten = Plaatsing.Bereken(Positie, Plaatsing.Werkgebied(Scherm), Open.Select(p => p.Size).ToList());
         for (int i = 0; i < Open.Count; i++)
             Open[i].Location = punten[i];
     }
@@ -99,7 +100,7 @@ sealed class MeetingPopup : PopupBasis
         else
         {
             int min = -sec / 60;
-            if (min >= cfg.Meetings.AutoCloseAfterMinutes) { Close(); return; }
+            if (cfg.Meetings.AutoCloseAfterMinutes > 0 && min >= cfg.Meetings.AutoCloseAfterMinutes) { Close(); return; }
             lblTijd.Text = min == 0 ? T.NuBegonnen : F(T.BegonnenGeleden, min);
             knipperen = true;
         }

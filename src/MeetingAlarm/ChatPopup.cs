@@ -15,6 +15,7 @@ sealed class ChatPopup : PopupBasis
     string handtekening = "";
     int knipperTikken;
     Position positie = Position.MiddleRight;
+    int scherm;
 
     /// <summary>De gebruiker heeft deze rijen gezien (✓ of "Alles gezien").</summary>
     public event Action<IReadOnlyList<ChatRij>>? Gezien;
@@ -26,6 +27,12 @@ sealed class ChatPopup : PopupBasis
     {
         get => positie;
         set { positie = value; Herplaats(); }
+    }
+
+    public int Scherm
+    {
+        get => scherm;
+        set { scherm = value; Herplaats(); }
     }
 
     public ChatPopup()
@@ -148,7 +155,7 @@ sealed class ChatPopup : PopupBasis
         return rij;
     }
 
-    void Herplaats() => Location = Plaatsing.Bereken(positie, Werkgebied, [Size])[0];
+    public void Herplaats() => Location = Plaatsing.Bereken(positie, Plaatsing.Werkgebied(scherm), [Size])[0];
 
     protected override void OnSizeChanged(EventArgs e)
     {

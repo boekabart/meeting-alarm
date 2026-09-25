@@ -35,8 +35,6 @@ abstract class PopupBasis : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
     }
 
-    protected static Rectangle Werkgebied => Screen.PrimaryScreen!.WorkingArea;   // houdt rekening met de taakbalk
-
     protected int S(int px) => (int)Math.Round(px * DeviceDpi / 96f);
 
     protected void HouBovenop()

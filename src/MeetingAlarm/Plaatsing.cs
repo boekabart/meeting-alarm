@@ -1,6 +1,16 @@
+using System.Text.RegularExpressions;
+
 static class Plaatsing
 {
     public const int Marge = 10;
+
+    /// <summary>Werkgebied (zonder taakbalk) van Windows-beeldscherm <paramref name="nummer"/>; 0 of niet aanwezig = hoofdscherm.</summary>
+    public static Rectangle Werkgebied(int nummer) =>
+        (Screen.AllScreens.FirstOrDefault(s => nummer > 0 && SchermNummer(s.DeviceName) == nummer) ?? Screen.PrimaryScreen!).WorkingArea;
+
+    /// <summary>"\\.\DISPLAY2" → 2: hetzelfde nummer als bij Instellingen → Beeldscherm → Identificeren.</summary>
+    public static int? SchermNummer(string deviceName) =>
+        Regex.Match(deviceName, @"DISPLAY(\d+)$", RegexOptions.IgnoreCase) is { Success: true } m ? int.Parse(m.Groups[1].Value) : null;
 
     /// <summary>
     /// Posities voor een stapel vensters binnen het werkgebied. Index 0 ligt het dichtst bij de ankerrand;

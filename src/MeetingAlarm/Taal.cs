@@ -89,7 +89,7 @@ static class Taal
         BalInloggenMislukt = "Signing in to '{0}' failed:\n{1}",
         KomendeTitel = "Upcoming meetings",
         GeenMeetings = "No meetings found in the next 2 days.",
-        TestMeeting = "Test meeting: weekly kickoff with the team",
+        TestMeeting = "Example: this is what a meeting alert looks like",
         VoorbeeldCollega = "Example Colleague",
         Deelnemen = "Join",
         Straks = "Later",
@@ -114,7 +114,6 @@ static class Taal
     // Brits Engels: vrijwel dezelfde teksten; het echte verschil zit in de tijdnotatie van de cultuur (14:03 i.p.v. 2:03 PM).
     static readonly Teksten EnGb = EnUs with
     {
-        TestMeeting = "Test meeting: weekly kick-off with the team",
         ConfigAangemaakt = "Settings file created:\n{0}\n\nFill in your ICS links, and for Teams chats your Tenant (e.g. company.co.uk) " +
                            "and LoginHint (your work e-mail). Save; changes are loaded automatically.",
         DraaitAl = "Meeting Alarm is already running (see the notification area).",
@@ -145,7 +144,7 @@ static class Taal
         BalInloggenMislukt = "Inloggen bij '{0}' mislukt:\n{1}",
         KomendeTitel = "Komende meetings",
         GeenMeetings = "Geen meetings gevonden in de komende 2 dagen.",
-        TestMeeting = "Testmeeting: weekstart met het team",
+        TestMeeting = "Voorbeeld: zo ziet een meeting-melding eruit",
         VoorbeeldCollega = "Voorbeeld Collega",
         Deelnemen = "Deelnemen",
         Straks = "Straks",
@@ -192,7 +191,7 @@ static class Taal
         BalInloggenMislukt = "Inloggningen på '{0}' misslyckades:\n{1}",
         KomendeTitel = "Kommande möten",
         GeenMeetings = "Inga möten hittades de kommande 2 dagarna.",
-        TestMeeting = "Testmöte: veckostart med teamet",
+        TestMeeting = "Exempel: så här ser en mötesavisering ut",
         VoorbeeldCollega = "Exempel Kollega",
         Deelnemen = "Anslut",
         Straks = "Senare",

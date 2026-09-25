@@ -1,4 +1,5 @@
 using Microsoft.Identity.Client;
+using Microsoft.Win32;
 using WinTimer = System.Windows.Forms.Timer;
 
 sealed class AlarmContext : ApplicationContext
@@ -66,6 +67,8 @@ sealed class AlarmContext : ApplicationContext
         watcher.Renamed += (s, e) => gewijzigd(s, e);   // editors die via een tijdelijk bestand opslaan
         watcher.EnableRaisingEvents = true;
 
+        SystemEvents.DisplaySettingsChanged += SchermenGewijzigd;   // scherm (los)gekoppeld: popups verhuizen mee
+
         checkTimer = new WinTimer { Interval = 10_000 };
         checkTimer.Tick += (_, _) => Check();
         checkTimer.Start();
@@ -88,8 +91,10 @@ sealed class AlarmContext : ApplicationContext
         miAfsluiten.Text = T.MenuAfsluiten;
 
         MeetingPopup.Positie = cfg.Meetings.Position;
+        MeetingPopup.Scherm = cfg.Meetings.Screen;
         MeetingPopup.Herplaats();
         chatPopup.Positie = cfg.Chats.Position;
+        chatPopup.Scherm = cfg.Chats.Screen;
         chatPopup.KnipperSeconden = cfg.Chats.FlashSeconds;
         chatPopup.Geluid = cfg.Sound;
 
@@ -328,8 +333,15 @@ sealed class AlarmContext : ApplicationContext
         chatPopup.Werk(chatRijen);
     }
 
+    void SchermenGewijzigd(object? sender, EventArgs e)
+    {
+        MeetingPopup.Herplaats();
+        chatPopup.Herplaats();
+    }
+
     protected override void ExitThreadCore()
     {
+        SystemEvents.DisplaySettingsChanged -= SchermenGewijzigd;
         stop.Cancel();
         watcher.Dispose();
         herlaadTimer.Stop();

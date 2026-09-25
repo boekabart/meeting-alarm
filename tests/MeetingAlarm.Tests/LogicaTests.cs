@@ -72,4 +72,12 @@ public class PlaatsingTests
 
         Assert.Equal([new Point(10, 10), new Point(10, 120)], p);
     }
+
+    [Theory]
+    [InlineData(@"\\.\DISPLAY1", 1)]
+    [InlineData(@"\\.\DISPLAY12", 12)]
+    [InlineData(@"\\.\display3", 3)]
+    [InlineData("iets anders", null)]
+    public void SchermNummer_uit_DeviceName(string deviceName, int? verwacht) =>
+        Assert.Equal(verwacht, Plaatsing.SchermNummer(deviceName));
 }

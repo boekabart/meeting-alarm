@@ -26,8 +26,11 @@ sealed class TeamsConfig
 sealed class MeetingsConfig
 {
     public Position Position { get; set; } = Position.BottomRight;
+    /// <summary>0 = hoofdscherm; n = Windows-beeldschermnummer n (Instellingen → Beeldscherm → Identificeren), anders hoofdscherm.</summary>
+    public int Screen { get; set; }
     public int MinutesBefore { get; set; } = 5;
     public int SnoozeSeconds { get; set; } = 60;
+    /// <summary>Minuten na de start dat de popup zichzelf sluit; 0 = nooit.</summary>
     public int AutoCloseAfterMinutes { get; set; } = 15;
     public int RefreshSeconds { get; set; } = 180;
 }
@@ -35,6 +38,8 @@ sealed class MeetingsConfig
 sealed class ChatsConfig
 {
     public Position Position { get; set; } = Position.MiddleRight;
+    /// <summary>Zie <see cref="MeetingsConfig.Screen"/>.</summary>
+    public int Screen { get; set; }
     public int PollSeconds { get; set; } = 30;
     public List<string> ChatTypes { get; set; } = ["oneOnOne", "group"];
     public int FlashSeconds { get; set; } = 3;
