@@ -16,7 +16,8 @@
 // Draaien:   dotnet run MeetingAlarm.cs
 // Testen:    dotnet run MeetingAlarm.cs -- --test
 // Exe maken: dotnet publish MeetingAlarm.cs -o publish
-// Instellingen: %APPDATA%\MeetingAlarm\config.json (wordt bij eerste start aangemaakt)
+// Instellingen: %APPDATA%\MeetingAlarm\config.json (wordt bij eerste start aangemaakt,
+//               wijzigingen worden automatisch geladen)
 
 using System.Diagnostics;
 using System.Media;
@@ -80,6 +81,9 @@ sealed class Config
     public static void OpenInKladblok() =>
         Process.Start(new ProcessStartInfo("notepad.exe", $"\"{Pad}\"") { UseShellExecute = true });
 
+    public static Config Laad() =>
+        JsonSerializer.Deserialize<Config>(File.ReadAllText(Pad), Opties) ?? new Config();
+
     public static Config? LaadOfMaak()
     {
         if (!File.Exists(Pad))
@@ -94,14 +98,16 @@ sealed class Config
                 }
             };
             File.WriteAllText(Pad, JsonSerializer.Serialize(voorbeeld, Opties));
-            MessageBox.Show($"Instellingenbestand aangemaakt:\n{Pad}\n\nVul je ICS-links in, sla op en start Meeting Alarm opnieuw.",
+            if (MessageBox.Show("Meeting Alarm automatisch starten met Windows?", "Meeting Alarm",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                Autostart.Aan = true;
+            MessageBox.Show($"Instellingenbestand aangemaakt:\n{Pad}\n\nVul je ICS-links in en sla op; wijzigingen worden automatisch geladen.",
                 "Meeting Alarm");
             OpenInKladblok();
-            return null;
         }
         try
         {
-            return JsonSerializer.Deserialize<Config>(File.ReadAllText(Pad), Opties) ?? new Config();
+            return Laad();
         }
         catch (Exception e)
         {
@@ -123,9 +129,12 @@ sealed class AlarmContext : ApplicationContext
         @"https://(?:teams\.microsoft\.com/l/meetup-join|teams\.live\.com/meet|[\w.-]*zoom\.us/j|meet\.google\.com)/[^\s""<>]+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    readonly Config cfg;
+    Config cfg;
+    readonly ContextMenuStrip menu = new();
     readonly NotifyIcon tray;
     readonly WinTimer checkTimer;
+    readonly WinTimer herlaadTimer = new() { Interval = 500 };   // debounce: editors schrijven vaak meerdere keren
+    readonly FileSystemWatcher watcher;
     readonly Dictionary<string, List<Meeting>> perAgenda = new();
     readonly Dictionary<string, ToolStripMenuItem> statusItems = new();
     readonly HashSet<string> foutGemeld = new();
@@ -136,13 +145,6 @@ sealed class AlarmContext : ApplicationContext
     public AlarmContext(Config cfg, bool test)
     {
         this.cfg = cfg;
-        var menu = new ContextMenuStrip();
-        foreach (var a in cfg.Agendas)
-        {
-            var item = new ToolStripMenuItem($"{a.Naam}: nog niet opgehaald") { Enabled = false };
-            statusItems[a.Naam] = item;
-            menu.Items.Add(item);
-        }
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Komende meetings…", null, (_, _) => ToonKomende());
         menu.Items.Add("Nu verversen", null, async (_, _) => await VerversAlles());
@@ -150,7 +152,7 @@ sealed class AlarmContext : ApplicationContext
         var autostart = new ToolStripMenuItem("Start met Windows") { Checked = Autostart.Aan, CheckOnClick = true };
         autostart.CheckedChanged += (_, _) => Autostart.Aan = autostart.Checked;
         menu.Items.Add(autostart);
-        menu.Items.Add("Instellingen openen (daarna herstarten)", null, (_, _) => Config.OpenInKladblok());
+        menu.Items.Add("Instellingen openen", null, (_, _) => Config.OpenInKladblok());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Afsluiten", null, (_, _) => ExitThread());
 
@@ -162,6 +164,20 @@ sealed class AlarmContext : ApplicationContext
             Visible = true,
         };
         tray.DoubleClick += (_, _) => ToonKomende();
+        BouwStatusItems();
+
+        // FileSystemWatcher vuurt op een threadpool-thread; via de UI-context de debounce-timer (her)starten.
+        var ui = SynchronizationContext.Current!;
+        herlaadTimer.Tick += (_, _) => { herlaadTimer.Stop(); Herlaad(); };
+        watcher = new FileSystemWatcher(Path.GetDirectoryName(Config.Pad)!, Path.GetFileName(Config.Pad))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+        };
+        FileSystemEventHandler gewijzigd = (_, _) => ui.Post(_ => { herlaadTimer.Stop(); herlaadTimer.Start(); }, null);
+        watcher.Changed += gewijzigd;
+        watcher.Created += gewijzigd;
+        watcher.Renamed += (s, e) => gewijzigd(s, e);   // editors die via een tijdelijk bestand opslaan
+        watcher.EnableRaisingEvents = true;
 
         checkTimer = new WinTimer { Interval = 10_000 };
         checkTimer.Tick += (_, _) => Check();
@@ -169,6 +185,50 @@ sealed class AlarmContext : ApplicationContext
 
         _ = VerversLoop();
         if (test) TestPopup();
+    }
+
+    void BouwStatusItems()
+    {
+        foreach (var item in statusItems.Values)
+        {
+            menu.Items.Remove(item);
+            item.Dispose();
+        }
+        statusItems.Clear();
+        int i = 0;
+        foreach (var a in cfg.Agendas)
+        {
+            var item = new ToolStripMenuItem($"{a.Naam}: nog niet opgehaald") { Enabled = false };
+            statusItems[a.Naam] = item;
+            menu.Items.Insert(i++, item);
+        }
+    }
+
+    void ZetStatus(AgendaConfig a, string tekst)
+    {
+        if (statusItems.TryGetValue(a.Naam, out var item)) item.Text = tekst;
+    }
+
+    void Herlaad()
+    {
+        Config nieuw;
+        try { nieuw = Config.Laad(); }
+        catch (IOException) when (File.Exists(Config.Pad))
+        {
+            herlaadTimer.Start();   // bestand nog in gebruik door de editor, zo nog eens proberen
+            return;
+        }
+        catch (Exception e)
+        {
+            tray.ShowBalloonTip(5000, "Meeting Alarm", $"Fout in config.json, oude instellingen blijven actief:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
+            return;
+        }
+        cfg = nieuw;
+        perAgenda.Clear();
+        foutGemeld.Clear();
+        BouwStatusItems();
+        tray.ShowBalloonTip(3000, "Meeting Alarm", "Instellingen opnieuw geladen.", ToolTipIcon.Info);
+        _ = VerversAlles();
     }
 
     async Task VerversLoop()
@@ -185,17 +245,24 @@ sealed class AlarmContext : ApplicationContext
     {
         foreach (var a in cfg.Agendas)
         {
+            if (!Uri.TryCreate(a.Url, UriKind.Absolute, out _))
+            {
+                ZetStatus(a, $"{a.Naam}: nog geen ICS-link ingevuld");
+                continue;
+            }
             try
             {
                 var ics = await http.GetStringAsync(a.Url, stop.Token);
                 var lijst = await Task.Run(() => Parse(a, ics));
+                if (!cfg.Agendas.Contains(a)) continue;   // config is intussen herladen
                 perAgenda[a.Naam] = lijst;   // alleen vervangen bij succes
-                statusItems[a.Naam].Text = $"{a.Naam}: OK om {DateTime.Now:HH:mm}, {lijst.Count} komende meeting(s)";
+                ZetStatus(a, $"{a.Naam}: OK om {DateTime.Now:HH:mm}, {lijst.Count} komende meeting(s)");
                 foutGemeld.Remove(a.Naam);
             }
             catch (Exception e) when (!stop.IsCancellationRequested)
             {
-                statusItems[a.Naam].Text = $"{a.Naam}: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}";
+                if (!cfg.Agendas.Contains(a)) continue;
+                ZetStatus(a, $"{a.Naam}: FOUT om {DateTime.Now:HH:mm} - {Kort(e.Message, 70)}");
                 if (foutGemeld.Add(a.Naam))
                     tray.ShowBalloonTip(5000, "Meeting Alarm", $"Agenda '{a.Naam}' ophalen mislukt:\n{Kort(e.Message, 150)}", ToolTipIcon.Warning);
             }
@@ -264,6 +331,8 @@ sealed class AlarmContext : ApplicationContext
     protected override void ExitThreadCore()
     {
         stop.Cancel();
+        watcher.Dispose();
+        herlaadTimer.Stop();
         checkTimer.Stop();
         tray.Visible = false;
         tray.Dispose();
