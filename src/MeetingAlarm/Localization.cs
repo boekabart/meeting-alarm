@@ -40,6 +40,7 @@ sealed record Texts
     public required string ExampleMeeting { get; init; }
     public required string ExampleColleague { get; init; }
     public required string Join { get; init; }
+    public required string JoinOn { get; init; }                 // {0} provider (Meet, Zoom)
     public required string Later { get; init; }
     public required string CloseButton { get; init; }
     public required string StartsIn { get; init; }               // {0} min, {1} sec, {2} start time
@@ -92,6 +93,7 @@ static class Loc
         ExampleMeeting = "Example: this is what a meeting alert looks like",
         ExampleColleague = "Example Colleague",
         Join = "Join",
+        JoinOn = "Join on {0}",
         Later = "Later",
         CloseButton = "Close",
         StartsIn = "Starts in {0}:{1:00}   ({2:t})",
@@ -147,6 +149,7 @@ static class Loc
         ExampleMeeting = "Voorbeeld: zo ziet een meeting-melding eruit",
         ExampleColleague = "Voorbeeld Collega",
         Join = "Deelnemen",
+        JoinOn = "Deelnemen via {0}",
         Later = "Straks",
         CloseButton = "Sluiten",
         StartsIn = "Start over {0}:{1:00}   ({2:t})",
@@ -194,6 +197,7 @@ static class Loc
         ExampleMeeting = "Exempel: så här ser en mötesavisering ut",
         ExampleColleague = "Exempel Kollega",
         Join = "Anslut",
+        JoinOn = "Anslut via {0}",
         Later = "Senare",
         CloseButton = "Stäng",
         StartsIn = "Börjar om {0}:{1:00}   ({2:t})",

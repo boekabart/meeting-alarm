@@ -40,3 +40,47 @@ public class GraphCalendarTests
     public void Without_online_meeting_there_is_no_link() =>
         Assert.Null(Map(Event.Replace("\"joinUrl\": \"https://teams.microsoft.com/l/meetup-join/abc\"", "\"joinUrl\": null"))!.Link);
 }
+
+public class MeetingLinksTests
+{
+    [Theory]
+    [InlineData("Join: https://meet.google.com/abc-defg-hij now", "https://meet.google.com/abc-defg-hij")]
+    [InlineData("https://acme.zoom.us/j/123456?pwd=x", "https://acme.zoom.us/j/123456?pwd=x")]
+    [InlineData("<https://teams.microsoft.com/l/meetup-join/19%3a1>", "https://teams.microsoft.com/l/meetup-join/19%3a1")]
+    [InlineData("see https://example.com/meet", null)]
+    public void Finds_join_links(string text, string? expected) => Assert.Equal(expected, MeetingLinks.Find(null, text));
+
+    [Theory]
+    [InlineData("https://meet.google.com/abc", "Meet")]
+    [InlineData("https://acme.zoom.us/j/1", "Zoom")]
+    [InlineData("https://teams.microsoft.com/l/meetup-join/x", null)]
+    public void Provider(string url, string? expected) => Assert.Equal(expected, MeetingLinks.Provider(url));
+
+    [Theory]
+    [InlineData("Room 4.12 (Eindhoven)", "Room 4.12 (Eindhoven)")]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    [InlineData("https://meet.google.com/abc", null)]
+    [InlineData("Microsoft Teams Meeting", null)]
+    [InlineData("Microsoft Teams-vergadering", null)]
+    public void CleanLocation(string? location, string? expected) => Assert.Equal(expected, MeetingLinks.CleanLocation(location));
+}
+
+public class GraphCalendarLinkTests
+{
+    [Fact]
+    public void Meet_link_from_the_invitation_text_and_room_from_location()
+    {
+        var m = TenantClient.ToMeeting(JsonDocument.Parse("""
+            {
+              "subject": "Review", "start": { "dateTime": "2026-09-26T08:00:00", "timeZone": "UTC" },
+              "onlineMeeting": null,
+              "location": { "displayName": "Room 4.12" },
+              "body": { "contentType": "text", "content": "Join with Google Meet\nhttps://meet.google.com/abc-defg-hij\nOr dial in" }
+            }
+            """).RootElement, "HTI", "teal")!;
+
+        Assert.Equal("https://meet.google.com/abc-defg-hij", m.Link);
+        Assert.Equal("Room 4.12", m.Location);
+    }
+}

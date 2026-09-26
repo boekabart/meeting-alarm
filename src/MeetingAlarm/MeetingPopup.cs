@@ -38,6 +38,8 @@ sealed class MeetingPopup : PopupBase
 
         inner.Controls.Add(MakeLabel(meeting.CalendarName.ToUpperInvariant(), 10, textWidth));
         inner.Controls.Add(MakeLabel(meeting.Title, 15, textWidth));
+        if (meeting.Location is { } location)
+            inner.Controls.Add(MakeLabel(location, 9, textWidth));
         timeLabel = MakeLabel("", 20, textWidth);
         timeLabel.Margin = new Padding(3, S(4), 3, S(8));
         inner.Controls.Add(timeLabel);
@@ -51,7 +53,7 @@ sealed class MeetingPopup : PopupBase
             Margin = Padding.Empty,
         };
         if (meeting.Link is not null)
-            buttons.Controls.Add(MakeButton(T.Join, () =>
+            buttons.Controls.Add(MakeButton(MeetingLinks.Provider(meeting.Link) is { } provider ? F(T.JoinOn, provider) : T.Join, () =>
             {
                 Process.Start(new ProcessStartInfo(meeting.Link) { UseShellExecute = true });
                 Close();
