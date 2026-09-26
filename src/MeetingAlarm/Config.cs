@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 enum Position { TopLeft, Top, TopRight, MiddleLeft, MiddleRight, BottomLeft, Bottom, BottomRight }
@@ -10,6 +11,8 @@ sealed class CalendarConfig
     public string Url { get; set; } = "";
     /// <summary>"#rrggbb", "#rgb" or a CSS color name ("teal", "rebeccapurple").</summary>
     public string Color { get; set; } = "#c62828";
+    /// <summary>Properties this version doesn't know (e.g. "_DisabledCalendars"); kept, and written at the end.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 /// <summary>One Microsoft 365 tenant (job), signed in via Graph. Chats and calendar are separate opt-ins.</summary>
@@ -24,6 +27,8 @@ sealed class TenantConfig
     public bool Chats { get; set; }
     /// <summary>Meeting popups from this tenant's Outlook calendar (Graph; much faster than a published ICS link).</summary>
     public bool Calendar { get; set; }
+    /// <summary>Properties this version doesn't know (e.g. "_DisabledCalendars"); kept, and written at the end.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 sealed class MeetingsConfig
@@ -39,6 +44,8 @@ sealed class MeetingsConfig
     public int RefreshSeconds { get; set; } = 180;
     /// <summary>How often tenant calendars are read via Graph.</summary>
     public int GraphRefreshSeconds { get; set; } = 30;
+    /// <summary>Properties this version doesn't know (e.g. "_DisabledCalendars"); kept, and written at the end.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 sealed class ChatsConfig
@@ -50,6 +57,8 @@ sealed class ChatsConfig
     public List<string> ChatTypes { get; set; } = ["oneOnOne", "group"];
     public int FlashSeconds { get; set; } = 3;
     public string? ClientId { get; set; }
+    /// <summary>Properties this version doesn't know (e.g. "_DisabledCalendars"); kept, and written at the end.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
 }
 
 sealed class Config
@@ -65,6 +74,9 @@ sealed class Config
     public List<TenantConfig> Tenants { get; set; } = new();
     /// <summary>Published ICS calendars, for calendars outside the tenants above.</summary>
     public List<CalendarConfig> Calendars { get; set; } = new();
+
+    /// <summary>Properties this version doesn't know (e.g. "_DisabledCalendars"); kept, and written at the end.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
 
     [JsonIgnore] public IEnumerable<CalendarConfig> ActiveCalendars => Calendars.Where(c => !string.IsNullOrWhiteSpace(c.Url));
     [JsonIgnore] public IEnumerable<TenantConfig> ActiveTenants =>
@@ -93,8 +105,29 @@ sealed class Config
 
     static void Save(Config c) => File.WriteAllText(FilePath, JsonSerializer.Serialize(c, Options));
 
-    public static Config Load() =>
-        JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath), Options) ?? new Config();
+    /// <summary>Loads config.json and brings it up to date on disk (new settings, canonical casing); the old one goes to config.bak.json.</summary>
+    public static Config Load()
+    {
+        var (cfg, rewritten) = Parse(File.ReadAllText(FilePath));
+        if (rewritten is not null)
+        {
+            File.Copy(FilePath, Path.Combine(Path.GetDirectoryName(FilePath)!, "config.bak.json"), overwrite: true);
+            File.WriteAllText(FilePath, rewritten);   // the watcher reloads once more, finds it current, and stops there
+        }
+        return cfg;
+    }
+
+    /// <summary>
+    /// Parses config.json. Returns the file in the current format when it differs from that, otherwise null:
+    /// an up-to-date file (with any comments in it) is left alone.
+    /// </summary>
+    internal static (Config Config, string? Rewritten) Parse(string json)
+    {
+        var cfg = JsonSerializer.Deserialize<Config>(json, Options) ?? new Config();
+        var current = JsonSerializer.Serialize(cfg, Options);
+        var asRead = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        return (cfg, JsonNode.DeepEquals(asRead, JsonNode.Parse(current)) ? null : current);
+    }
 
     public static Config? LoadOrCreate()
     {
