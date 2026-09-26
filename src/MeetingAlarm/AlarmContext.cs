@@ -20,6 +20,8 @@ sealed class AlarmContext : ApplicationContext
     readonly HashSet<object> errorReported = new();
     readonly HashSet<string> shown = new();
     readonly HashSet<string> autoSignInTried = new();
+    // Features that got "interaction required" from the silent token call: not signed in, or a permission not granted yet.
+    readonly HashSet<(TenantConfig, Feature)> accessMissing = new();
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(30) };
     readonly CancellationTokenSource stop = new();
 
@@ -232,12 +234,12 @@ sealed class AlarmContext : ApplicationContext
                     meetingsBySource[t] = meetings;
                     SetStatus(key, F(T.StatusCalendarOk, OutlookName(t), DateTime.Now, meetings.Count));
                     errorReported.Remove(key);
+                    AccessOk(client, Feature.Calendar);
                 }
                 catch (MsalUiRequiredException)
                 {
-                    // Only the calendar waits for a sign-in (or an admin approval); chats keep running.
-                    SetStatus(key, F(T.StatusSignInRequired, OutlookName(t)));
-                    SignInNeeded(client);
+                    // Only the calendar waits for a sign-in or permission; chats keep running.
+                    AccessMissing(client, Feature.Calendar, key, OutlookName(t));
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
@@ -297,23 +299,18 @@ sealed class AlarmContext : ApplicationContext
             foreach (var client in clients.Where(c => c.Tenant.Chats).ToList())
             {
                 var key = (client.Tenant, "chats");
-                if (client.NeedsSignIn)
-                {
-                    all.AddRange(client.Previous);
-                    continue;
-                }
                 try
                 {
                     all.AddRange(await client.Poll(stop.Token));
                     SetStatus(key, F(T.StatusOk, TeamsName(client.Tenant), DateTime.Now));
                     errorReported.Remove(key);
+                    AccessOk(client, Feature.Chats);
                 }
                 catch (MsalUiRequiredException)
                 {
+                    // Keep trying silently each round: once the permission is granted (e.g. admin consent in the portal) it just works.
                     all.AddRange(client.Previous);
-                    client.NeedsSignIn = true;   // pause chat polling until signed in
-                    SetStatus(key, F(T.StatusSignInRequired, TeamsName(client.Tenant)));
-                    SignInNeeded(client);
+                    AccessMissing(client, Feature.Chats, key, TeamsName(client.Tenant));
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
@@ -334,16 +331,44 @@ sealed class AlarmContext : ApplicationContext
 
     // ------------------------------------------------------------ Sign-in
 
-    void SignInNeeded(TenantClient client)
+    static string FeatureText(Feature f) =>
+        $"{(f == Feature.Chats ? T.FeatureChats : T.FeatureCalendar)} ({TenantClient.ScopeOf(f)})";
+
+    string MissingText(TenantConfig t) =>
+        string.Join(", ", Enum.GetValues<Feature>().Where(f => accessMissing.Contains((t, f))).Select(FeatureText));
+
+    /// <summary>The tray item is "Sign in to X…" before the first sign-in, and names the missing permissions after that.</summary>
+    void UpdateSignInItem(TenantClient client)
     {
         var t = client.Tenant;
-        if (signInItems.TryGetValue(t, out var item)) item.Visible = true;
+        if (!signInItems.TryGetValue(t, out var item)) return;
+        item.Visible = Enum.GetValues<Feature>().Any(f => accessMissing.Contains((t, f)));
+        item.Text = client.NeverSignedIn ? F(T.MenuSignInTo, t.Name) : F(T.MenuGrantAccess, t.Name, MissingText(t));
+    }
+
+    void AccessMissing(TenantClient client, Feature feature, object statusKey, string statusName)
+    {
+        var t = client.Tenant;
+        accessMissing.Add((t, feature));
+        SetStatus(statusKey, client.NeverSignedIn
+            ? F(T.StatusSignInRequired, statusName)
+            : F(T.StatusAccessNeeded, statusName, TenantClient.ScopeOf(feature)));
+        UpdateSignInItem(client);
 
         // The very first time, open the sign-in window right away; after that never unasked, only via the menu.
         if (client.NeverSignedIn && autoSignInTried.Add($"{t.Tenant}|{t.LoginHint}"))
             _ = SignIn(client);
-        else if (errorReported.Add((t, "signin")))
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInAgain, t.Name), ToolTipIcon.Warning);
+        else if (errorReported.Add((t, feature, "access")))
+            tray.ShowBalloonTip(5000, "Meeting Alarm", client.NeverSignedIn
+                ? F(T.BalloonSignInAgain, t.Name)
+                : F(T.BalloonAccessNeeded, t.Name, FeatureText(feature)), ToolTipIcon.Warning);
+    }
+
+    void AccessOk(TenantClient client, Feature feature)
+    {
+        if (!accessMissing.Remove((client.Tenant, feature))) return;
+        errorReported.Remove((client.Tenant, feature, "access"));
+        UpdateSignInItem(client);
     }
 
     async Task SignIn(TenantClient client)
@@ -352,8 +377,7 @@ sealed class AlarmContext : ApplicationContext
         try
         {
             await client.SignIn();
-            if (signInItems.TryGetValue(t, out var item)) item.Visible = false;
-            errorReported.Remove((t, "signin"));
+            foreach (var f in Enum.GetValues<Feature>()) AccessOk(client, f);
             if (t.Chats) SetStatus((t, "chats"), F(T.StatusSignedIn, TeamsName(t)));
             if (t.Calendar) SetStatus((t, "calendar"), F(T.StatusSignedIn, OutlookName(t)));
             await RefreshGraphCalendars();

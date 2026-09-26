@@ -9,6 +9,8 @@ sealed record ChatRow(TenantConfig Job, string Key, string Name, int Count, Date
 
 sealed class GraphException(string message) : Exception(message);
 
+enum Feature { Calendar, Chats }
+
 /// <summary>
 /// One tenant via Microsoft Graph, with a delegated sign-in via WAM: its Teams chats and/or its Outlook calendar.
 /// </summary>
@@ -16,13 +18,14 @@ sealed class TenantClient
 {
     static readonly string[] ChatScopes = ["Chat.Read", "User.Read"];
     static readonly string[] CalendarScopes = ["Calendars.Read"];
+
+    /// <summary>The permission a feature needs, as shown to the user ("allow access to … (Calendars.Read)").</summary>
+    public static string ScopeOf(Feature f) => f == Feature.Chats ? "Chat.Read" : "Calendars.Read";
     static readonly DateTimeOffset StartTime = DateTimeOffset.Now;
     static readonly HttpClient Http = new() { BaseAddress = new Uri("https://graph.microsoft.com/v1.0/"), Timeout = TimeSpan.FromSeconds(30) };
     static Task<MsalCacheHelper>? cacheHelper;
 
     public TenantConfig Tenant { get; }
-    /// <summary>Chat polling is paused until an interactive sign-in succeeds.</summary>
-    public bool NeedsSignIn { get; set; }
     /// <summary>Last successful chat result; kept when a poll fails.</summary>
     public List<ChatRow> Previous { get; private set; } = [];
     /// <summary>No account known (yet) for this tenant: first sign-in.</summary>
@@ -86,7 +89,6 @@ sealed class TenantClient
         var res = await b.ExecuteAsync();
         account = res.Account;
         tenantId = res.TenantId;
-        NeedsSignIn = false;
     }
 
     public void Forget(IReadOnlySet<string> keys) => Previous = Previous.Where(r => !keys.Contains(r.Key)).ToList();

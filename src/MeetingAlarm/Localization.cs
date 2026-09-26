@@ -16,6 +16,7 @@ sealed record Texts
     public required string MenuSettings { get; init; }
     public required string MenuExit { get; init; }
     public required string MenuSignInTo { get; init; }           // {0} name
+    public required string MenuGrantAccess { get; init; }        // {0} name, {1} features with permission
 
     // Status lines in the menu: {0} name, {1} time
     public required string StatusNotFetched { get; init; }
@@ -25,6 +26,7 @@ sealed record Texts
     public required string StatusError { get; init; }            // {2} message
     public required string StatusSignInRequired { get; init; }
     public required string StatusSignedIn { get; init; }
+    public required string StatusAccessNeeded { get; init; }     // {0} name, {1} permission (e.g. Calendars.Read)
 
     // Balloon notifications
     public required string BalloonConfigError { get; init; }     // {0} message
@@ -33,6 +35,9 @@ sealed record Texts
     public required string BalloonChatsFailed { get; init; }     // {0} name, {1} message
     public required string BalloonSignInAgain { get; init; }     // {0} name
     public required string BalloonSignInFailed { get; init; }    // {0} name, {1} message
+    public required string BalloonAccessNeeded { get; init; }    // {0} name, {1} feature with permission
+    public required string FeatureCalendar { get; init; }
+    public required string FeatureChats { get; init; }
 
     // Windows and popups
     public required string UpcomingTitle { get; init; }
@@ -75,6 +80,7 @@ static class Loc
         MenuSettings = "Open settings",
         MenuExit = "Exit",
         MenuSignInTo = "Sign in to {0}…",
+        MenuGrantAccess = "{0}: allow access to {1}…",
         StatusNotFetched = "{0}: not fetched yet",
         StatusNoIcsLink = "{0}: no ICS link filled in yet",
         StatusCalendarOk = "{0}: OK at {1:t}, {2} upcoming meeting(s)",
@@ -82,12 +88,16 @@ static class Loc
         StatusError = "{0}: ERROR at {1:t} - {2}",
         StatusSignInRequired = "{0}: sign-in required",
         StatusSignedIn = "{0}: signed in, fetching…",
+        StatusAccessNeeded = "{0}: permission needed ({1})",
         BalloonConfigError = "Error in config.json, keeping the previous settings:\n{0}",
         BalloonReloaded = "Settings reloaded.",
         BalloonCalendarFailed = "Fetching calendar '{0}' failed:\n{1}",
         BalloonChatsFailed = "Fetching Teams chats '{0}' failed:\n{1}",
-        BalloonSignInAgain = "Teams '{0}': please sign in again (right-click the tray icon).",
+        BalloonSignInAgain = "{0}: please sign in (via the tray icon's menu).",
         BalloonSignInFailed = "Signing in to '{0}' failed:\n{1}",
+        BalloonAccessNeeded = "{0}: Meeting Alarm needs access to {1}. Allow it via the tray icon's menu.",
+        FeatureCalendar = "your calendar",
+        FeatureChats = "your Teams chats",
         UpcomingTitle = "Upcoming meetings",
         NoMeetings = "No meetings found in the next 2 days.",
         ExampleMeeting = "Example: this is what a meeting alert looks like",
@@ -131,6 +141,7 @@ static class Loc
         MenuSettings = "Instellingen openen",
         MenuExit = "Afsluiten",
         MenuSignInTo = "Inloggen bij {0}…",
+        MenuGrantAccess = "{0}: toegang geven tot {1}…",
         StatusNotFetched = "{0}: nog niet opgehaald",
         StatusNoIcsLink = "{0}: nog geen ICS-link ingevuld",
         StatusCalendarOk = "{0}: OK om {1:t}, {2} komende meeting(s)",
@@ -138,12 +149,16 @@ static class Loc
         StatusError = "{0}: FOUT om {1:t} - {2}",
         StatusSignInRequired = "{0}: inloggen vereist",
         StatusSignedIn = "{0}: ingelogd, ophalen…",
+        StatusAccessNeeded = "{0}: toestemming nodig ({1})",
         BalloonConfigError = "Fout in config.json, oude instellingen blijven actief:\n{0}",
         BalloonReloaded = "Instellingen opnieuw geladen.",
         BalloonCalendarFailed = "Agenda '{0}' ophalen mislukt:\n{1}",
         BalloonChatsFailed = "Teams-chats '{0}' ophalen mislukt:\n{1}",
-        BalloonSignInAgain = "Teams '{0}': opnieuw inloggen vereist (rechtsklik op het icoon).",
+        BalloonSignInAgain = "{0}: inloggen vereist (via het menu van het icoon).",
         BalloonSignInFailed = "Inloggen bij '{0}' mislukt:\n{1}",
+        BalloonAccessNeeded = "{0}: Meeting Alarm heeft toegang nodig tot {1}. Geef die via het menu van het icoon.",
+        FeatureCalendar = "je agenda",
+        FeatureChats = "je Teams-chats",
         UpcomingTitle = "Komende meetings",
         NoMeetings = "Geen meetings gevonden in de komende 2 dagen.",
         ExampleMeeting = "Voorbeeld: zo ziet een meeting-melding eruit",
@@ -179,6 +194,7 @@ static class Loc
         MenuSettings = "Öppna inställningar",
         MenuExit = "Avsluta",
         MenuSignInTo = "Logga in på {0}…",
+        MenuGrantAccess = "{0}: ge åtkomst till {1}…",
         StatusNotFetched = "{0}: inte hämtad än",
         StatusNoIcsLink = "{0}: ingen ICS-länk angiven än",
         StatusCalendarOk = "{0}: OK kl. {1:t}, {2} kommande möte(n)",
@@ -186,12 +202,16 @@ static class Loc
         StatusError = "{0}: FEL kl. {1:t} - {2}",
         StatusSignInRequired = "{0}: inloggning krävs",
         StatusSignedIn = "{0}: inloggad, hämtar…",
+        StatusAccessNeeded = "{0}: behörighet krävs ({1})",
         BalloonConfigError = "Fel i config.json, de tidigare inställningarna behålls:\n{0}",
         BalloonReloaded = "Inställningarna har lästs in igen.",
         BalloonCalendarFailed = "Det gick inte att hämta kalendern '{0}':\n{1}",
         BalloonChatsFailed = "Det gick inte att hämta Teams-chattarna '{0}':\n{1}",
-        BalloonSignInAgain = "Teams '{0}': logga in igen (högerklicka på ikonen).",
+        BalloonSignInAgain = "{0}: logga in (via ikonens meny).",
         BalloonSignInFailed = "Inloggningen på '{0}' misslyckades:\n{1}",
+        BalloonAccessNeeded = "{0}: Meeting Alarm behöver åtkomst till {1}. Tillåt det via ikonens meny.",
+        FeatureCalendar = "din kalender",
+        FeatureChats = "dina Teams-chattar",
         UpcomingTitle = "Kommande möten",
         NoMeetings = "Inga möten hittades de kommande 2 dagarna.",
         ExampleMeeting = "Exempel: så här ser en mötesavisering ut",
