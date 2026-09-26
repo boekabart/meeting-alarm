@@ -22,7 +22,7 @@ sealed class MeetingPopup : PopupBase
     {
         this.meeting = meeting;
         this.cfg = cfg;
-        color = ColorParser.Parse(meeting.Calendar.Color);
+        color = ColorParser.Parse(meeting.Color);
         int textWidth = S(400);
 
         inner = new FlowLayoutPanel
@@ -36,7 +36,7 @@ sealed class MeetingPopup : PopupBase
             Margin = Padding.Empty,
         };
 
-        inner.Controls.Add(MakeLabel(meeting.Calendar.Name.ToUpperInvariant(), 10, textWidth));
+        inner.Controls.Add(MakeLabel(meeting.CalendarName.ToUpperInvariant(), 10, textWidth));
         inner.Controls.Add(MakeLabel(meeting.Title, 15, textWidth));
         timeLabel = MakeLabel("", 20, textWidth);
         timeLabel.Margin = new Padding(3, S(4), 3, S(8));

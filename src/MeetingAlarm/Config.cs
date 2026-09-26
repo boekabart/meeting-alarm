@@ -12,13 +12,18 @@ sealed class CalendarConfig
     public string Color { get; set; } = "#c62828";
 }
 
-sealed class TeamsConfig
+/// <summary>One Microsoft 365 tenant (job), signed in via Graph. Chats and calendar are separate opt-ins.</summary>
+sealed class TenantConfig
 {
     public string Name { get; set; } = "";
     public string Tenant { get; set; } = "";
     public string LoginHint { get; set; } = "";
     public string Color { get; set; } = "#c62828";
     public string? ClientId { get; set; }
+    /// <summary>Show unread Teams chats of this tenant.</summary>
+    public bool Chats { get; set; }
+    /// <summary>Meeting popups from this tenant's Outlook calendar (Graph; much faster than a published ICS link).</summary>
+    public bool Calendar { get; set; }
 }
 
 sealed class MeetingsConfig
@@ -30,7 +35,10 @@ sealed class MeetingsConfig
     public int SnoozeSeconds { get; set; } = 60;
     /// <summary>Minutes after the start at which the popup closes itself; 0 = never.</summary>
     public int AutoCloseAfterMinutes { get; set; } = 15;
+    /// <summary>How often published ICS calendars are fetched.</summary>
     public int RefreshSeconds { get; set; } = 180;
+    /// <summary>How often tenant calendars are read via Graph.</summary>
+    public int GraphRefreshSeconds { get; set; } = 30;
 }
 
 sealed class ChatsConfig
@@ -54,13 +62,15 @@ sealed class Config
     public bool Sound { get; set; } = true;
     public MeetingsConfig Meetings { get; set; } = new();
     public ChatsConfig Chats { get; set; } = new();
+    public List<TenantConfig> Tenants { get; set; } = new();
+    /// <summary>Published ICS calendars, for calendars outside the tenants above.</summary>
     public List<CalendarConfig> Calendars { get; set; } = new();
-    public List<TeamsConfig> Teams { get; set; } = new();
 
     [JsonIgnore] public IEnumerable<CalendarConfig> ActiveCalendars => Calendars.Where(c => !string.IsNullOrWhiteSpace(c.Url));
-    [JsonIgnore] public IEnumerable<TeamsConfig> ActiveTeams => Teams.Where(t => !string.IsNullOrWhiteSpace(t.Tenant));
+    [JsonIgnore] public IEnumerable<TenantConfig> ActiveTenants =>
+        Tenants.Where(t => !string.IsNullOrWhiteSpace(t.Tenant) && (t.Chats || t.Calendar));
 
-    public string ClientIdFor(TeamsConfig t) =>
+    public string ClientIdFor(TenantConfig t) =>
         !string.IsNullOrWhiteSpace(t.ClientId) ? t.ClientId
         : !string.IsNullOrWhiteSpace(Chats.ClientId) ? Chats.ClientId
         : DefaultClientId;
@@ -94,14 +104,10 @@ sealed class Config
             Save(new Config
             {
                 Language = "",
-                Calendars =
+                Tenants =
                 {
-                    new CalendarConfig { Name = "Job 1", Url = "PASTE_ICS_LINK_JOB_1", Color = "firebrick" },
-                    new CalendarConfig { Name = "Job 2", Url = "PASTE_ICS_LINK_JOB_2", Color = "#1565c0" },
-                },
-                Teams =
-                {
-                    new TeamsConfig { Name = "Job 1", Tenant = "", LoginHint = "", Color = "firebrick" },
+                    new TenantConfig { Name = "Job 1", Tenant = "", LoginHint = "", Color = "firebrick", Chats = true, Calendar = true },
+                    new TenantConfig { Name = "Job 2", Tenant = "", LoginHint = "", Color = "#1565c0", Chats = true, Calendar = true },
                 },
             });
             if (MessageBox.Show(T.AutostartQuestion, "Meeting Alarm",

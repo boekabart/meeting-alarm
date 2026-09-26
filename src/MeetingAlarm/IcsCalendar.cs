@@ -2,9 +2,10 @@ using System.Text.RegularExpressions;
 using Ical.Net;
 using Ical.Net.CalendarComponents;
 
-sealed record Meeting(CalendarConfig Calendar, string Title, DateTime Start, string Uid, string? Link)
+sealed record Meeting(string CalendarName, string Color, string Title, DateTime Start, string Uid, string? Link)
 {
-    public string Key => $"{Calendar.Name}|{Uid}|{Start:O}";
+    /// <summary>Without the calendar name: the same meeting via ICS and via Graph gives one popup.</summary>
+    public string Key => $"{Uid}|{Start:O}";
 }
 
 static class IcsCalendar
@@ -36,7 +37,7 @@ static class IcsCalendar
                 ?.Value?.ToString();
             var m = LinkRe.Match($"{teamsUrl} {ev.Location} {ev.Description}");
 
-            result.Add(new Meeting(calendar, title, occ.Period.StartTime.AsSystemLocal, ev.Uid ?? title, m.Success ? m.Value : null));
+            result.Add(new Meeting(calendar.Name, calendar.Color, title, occ.Period.StartTime.AsSystemLocal, ev.Uid ?? title, m.Success ? m.Value : null));
         }
         return result.OrderBy(x => x.Start).ToList();
     }

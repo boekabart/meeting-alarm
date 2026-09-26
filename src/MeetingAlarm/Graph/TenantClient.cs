@@ -5,23 +5,27 @@ using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Broker;
 using Microsoft.Identity.Client.Extensions.Msal;
 
-sealed record ChatRow(TeamsConfig Job, string Key, string Name, int Count, DateTimeOffset Newest, string? WebUrl);
+sealed record ChatRow(TenantConfig Job, string Key, string Name, int Count, DateTimeOffset Newest, string? WebUrl);
 
 sealed class GraphException(string message) : Exception(message);
 
-/// <summary>Reads the chats of one job (tenant) via Microsoft Graph, with a delegated sign-in via WAM.</summary>
-sealed class ChatPoller
+/// <summary>
+/// One tenant via Microsoft Graph, with a delegated sign-in via WAM: its Teams chats and/or its Outlook calendar.
+/// </summary>
+sealed class TenantClient
 {
-    static readonly string[] Scopes = ["Chat.Read", "User.Read"];
+    static readonly string[] ChatScopes = ["Chat.Read", "User.Read"];
+    static readonly string[] CalendarScopes = ["Calendars.Read"];
     static readonly DateTimeOffset StartTime = DateTimeOffset.Now;
     static readonly HttpClient Http = new() { BaseAddress = new Uri("https://graph.microsoft.com/v1.0/"), Timeout = TimeSpan.FromSeconds(30) };
     static Task<MsalCacheHelper>? cacheHelper;
 
-    public TeamsConfig Job { get; }
+    public TenantConfig Tenant { get; }
+    /// <summary>Chat polling is paused until an interactive sign-in succeeds.</summary>
     public bool NeedsSignIn { get; set; }
-    /// <summary>Last successful result; kept when a poll fails.</summary>
+    /// <summary>Last successful chat result; kept when a poll fails.</summary>
     public List<ChatRow> Previous { get; private set; } = [];
-    /// <summary>No account known (yet) for this job: first sign-in.</summary>
+    /// <summary>No account known (yet) for this tenant: first sign-in.</summary>
     public bool NeverSignedIn => account is null;
 
     readonly IPublicClientApplication app;
@@ -33,14 +37,14 @@ sealed class ChatPoller
     string? myId, tenantId;
     DateTimeOffset pausedUntil;
 
-    public ChatPoller(TeamsConfig job, string clientId, IReadOnlyCollection<string> chatTypes, ChatState state, Func<IntPtr> ownerWindow)
+    public TenantClient(TenantConfig tenant, string clientId, IReadOnlyCollection<string> chatTypes, ChatState state, Func<IntPtr> ownerWindow)
     {
-        Job = job;
+        Tenant = tenant;
         this.chatTypes = chatTypes;
         this.state = state;
         // Always the specific tenant as authority (not "organizations"): that way each token belongs to the right job.
         app = PublicClientApplicationBuilder.Create(clientId)
-            .WithAuthority(AzureCloudInstance.AzurePublic, job.Tenant)
+            .WithAuthority(AzureCloudInstance.AzurePublic, tenant.Tenant)
             .WithBroker(new BrokerOptions(BrokerOptions.OperatingSystems.Windows) { Title = "Meeting Alarm" })
             .WithParentActivityOrWindow(ownerWindow)
             .Build();
@@ -55,16 +59,16 @@ sealed class ChatPoller
         cacheAttached = true;
 
         var accounts = await app.GetAccountsAsync();
-        account = accounts.FirstOrDefault(a => string.Equals(a.Username, Job.LoginHint, StringComparison.OrdinalIgnoreCase))
-                  ?? (string.IsNullOrWhiteSpace(Job.LoginHint) ? accounts.FirstOrDefault() : null);
+        account = accounts.FirstOrDefault(a => string.Equals(a.Username, Tenant.LoginHint, StringComparison.OrdinalIgnoreCase))
+                  ?? (string.IsNullOrWhiteSpace(Tenant.LoginHint) ? accounts.FirstOrDefault() : null);
     }
 
-    async Task<string> Token(CancellationToken ct)
+    async Task<string> Token(string[] scopes, CancellationToken ct)
     {
         await AttachCache();
         AcquireTokenSilentParameterBuilder b;
-        if (account is not null) b = app.AcquireTokenSilent(Scopes, account);
-        else if (!string.IsNullOrWhiteSpace(Job.LoginHint)) b = app.AcquireTokenSilent(Scopes, Job.LoginHint);
+        if (account is not null) b = app.AcquireTokenSilent(scopes, account);
+        else if (!string.IsNullOrWhiteSpace(Tenant.LoginHint)) b = app.AcquireTokenSilent(scopes, Tenant.LoginHint);
         else throw new MsalUiRequiredException("no_account", "Not signed in yet.");
         var res = await b.ExecuteAsync(ct);
         account = res.Account;
@@ -72,12 +76,13 @@ sealed class ChatPoller
         return res.AccessToken;
     }
 
-    /// <summary>Interactive sign-in (WAM window). Only call from the UI thread.</summary>
+    /// <summary>Interactive sign-in (WAM window) for everything this tenant has switched on. Only call from the UI thread.</summary>
     public async Task SignIn()
     {
         await AttachCache();
-        var b = app.AcquireTokenInteractive(Scopes);
-        if (!string.IsNullOrWhiteSpace(Job.LoginHint)) b = b.WithLoginHint(Job.LoginHint);
+        string[] scopes = [.. Tenant.Chats ? ChatScopes : ["User.Read"], .. Tenant.Calendar ? CalendarScopes : []];
+        var b = app.AcquireTokenInteractive(scopes);
+        if (!string.IsNullOrWhiteSpace(Tenant.LoginHint)) b = b.WithLoginHint(Tenant.LoginHint);
         var res = await b.ExecuteAsync();
         account = res.Account;
         tenantId = res.TenantId;
@@ -86,13 +91,46 @@ sealed class ChatPoller
 
     public void Forget(IReadOnlySet<string> keys) => Previous = Previous.Where(r => !keys.Contains(r.Key)).ToList();
 
+    // ------------------------------------------------------------ Calendar
+
+    /// <summary>Meetings from 1 hour ago until 2 days ahead, straight from the mailbox (no publishing delay like ICS).</summary>
+    public async Task<List<Meeting>> GetMeetings(CancellationToken ct)
+    {
+        var from = DateTime.UtcNow.AddHours(-1).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+        var until = DateTime.UtcNow.AddDays(2).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+        // ponytail: one page of 100 events covers two days; page further if someone ever has more
+        var page = await Get($"me/calendarView?startDateTime={from}&endDateTime={until}&$top=100" +
+                             "&$select=subject,start,isAllDay,isCancelled,responseStatus,onlineMeeting,iCalUId,id",
+            CalendarScopes, ct);
+        return page.GetProperty("value").EnumerateArray()
+            .Select(e => ToMeeting(e, Tenant.Name, Tenant.Color))
+            .OfType<Meeting>()
+            .OrderBy(m => m.Start)
+            .ToList();
+    }
+
+    /// <summary>Graph event → Meeting; null for all-day, cancelled or declined events. Times arrive in UTC (Prefer header).</summary>
+    internal static Meeting? ToMeeting(JsonElement e, string calendarName, string color)
+    {
+        if (e.TryGetProperty("isAllDay", out var allDay) && allDay.ValueKind == JsonValueKind.True) return null;
+        if (e.TryGetProperty("isCancelled", out var cancelled) && cancelled.ValueKind == JsonValueKind.True) return null;
+        if (e.TryGetProperty("responseStatus", out var rs) && rs.ValueKind == JsonValueKind.Object && rs.Str("response") == "declined") return null;
+        if (!e.TryGetProperty("start", out var start) || start.ValueKind != JsonValueKind.Object || start.Date("dateTime") is not { } when) return null;
+
+        var title = e.Str("subject") is { Length: > 0 } s ? s.Trim() : T.NoTitle;
+        var link = e.TryGetProperty("onlineMeeting", out var om) && om.ValueKind == JsonValueKind.Object ? om.Str("joinUrl") : null;
+        return new Meeting(calendarName, color, title, when.LocalDateTime, e.Str("iCalUId") ?? e.Str("id") ?? title, link);
+    }
+
+    // ------------------------------------------------------------ Chats
+
     public async Task<List<ChatRow>> Poll(CancellationToken ct)
     {
         if (DateTimeOffset.Now < pausedUntil) return Previous;   // Graph asked us to back off (429)
 
-        myId ??= (await Get("me?$select=id", ct)).Str("id");
+        myId ??= (await Get("me?$select=id", ChatScopes, ct)).Str("id");
         // ponytail: only the 50 most recently active chats (one page); page further if that ever turns out too few
-        var chats = await Get("me/chats?$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc&$top=50", ct);
+        var chats = await Get("me/chats?$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc&$top=50", ChatScopes, ct);
 
         var rows = new List<ChatRow>();
         foreach (var c in chats.GetProperty("value").EnumerateArray())
@@ -108,7 +146,7 @@ sealed class ChatPoller
 
             // Teams' own read marker. Normally part of the list; if not, fetch it per chat.
             if (!c.TryGetProperty("viewpoint", out var vp))
-                (await Get($"chats/{Uri.EscapeDataString(chatId)}", ct)).TryGetProperty("viewpoint", out vp);
+                (await Get($"chats/{Uri.EscapeDataString(chatId)}", ChatScopes, ct)).TryGetProperty("viewpoint", out vp);
             var read = vp.ValueKind == JsonValueKind.Object ? vp.Date("lastMessageReadDateTime") : null;
 
             var baseline = ChatCounter.Baseline(acked, read);
@@ -124,14 +162,14 @@ sealed class ChatPoller
                 continue;
             }
 
-            var messages = await Get($"chats/{Uri.EscapeDataString(chatId)}/messages?$top={ChatCounter.MaxMessages}&$orderby=createdDateTime desc", ct);
+            var messages = await Get($"chats/{Uri.EscapeDataString(chatId)}/messages?$top={ChatCounter.MaxMessages}&$orderby=createdDateTime desc", ChatScopes, ct);
             var count = ChatCounter.Count(
                 messages.GetProperty("value").EnumerateArray().Select(ToMessage).OrderByDescending(m => m.Created),
                 baseline.Value, myId!);
             if (count.OwnMessage is { } own) state.Ack(key, own);
             if (count.Count == 0) continue;
 
-            rows.Add(new ChatRow(Job, key, await ResolveName(c, chatId, ct), count.Count, count.Newest!.Value,
+            rows.Add(new ChatRow(Tenant, key, await ResolveName(c, chatId, ct), count.Count, count.Newest!.Value,
                 c.Str("webUrl") ?? TeamsLink.ForChat(tenantId!, chatId)));
         }
         Previous = rows;
@@ -144,7 +182,7 @@ sealed class ChatPoller
         if (!string.IsNullOrWhiteSpace(topic)) return topic;
         if (names.TryGetValue(chatId, out var name)) return name;
 
-        var members = await Get($"chats/{Uri.EscapeDataString(chatId)}/members", ct);
+        var members = await Get($"chats/{Uri.EscapeDataString(chatId)}/members", ChatScopes, ct);
         name = string.Join(", ", members.GetProperty("value").EnumerateArray()
             .Where(m => m.Str("userId") != myId)
             .Select(m => m.Str("displayName"))
@@ -162,10 +200,13 @@ sealed class ChatPoller
         m.TryGetProperty("from", out var f) && f.ValueKind == JsonValueKind.Object &&
         f.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.Object ? u.Str("id") : null;
 
-    async Task<JsonElement> Get(string path, CancellationToken ct)
+    // ------------------------------------------------------------ Graph
+
+    async Task<JsonElement> Get(string path, string[] scopes, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, path);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await Token(ct));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await Token(scopes, ct));
+        req.Headers.Add("Prefer", "outlook.timezone=\"UTC\"");   // calendar times in UTC; ignored by the chat endpoints
         using var resp = await Http.SendAsync(req, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
 

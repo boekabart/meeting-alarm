@@ -32,7 +32,7 @@ Teams has nothing like the calendar's ICS link, so each tenant needs its own del
 
 | Item | Value |
 |---|---|
-| Scopes | `Chat.Read`, `User.Read`, `offline_access` |
+| Scopes | `Chat.Read`, `User.Read`, `offline_access`, `Calendars.Read` (tenant calendar) |
 | Library | `Microsoft.Identity.Client` + `Microsoft.Identity.Client.Broker` (WAM → SSO with the work accounts already signed in to Windows, satisfies most Conditional Access device checks) |
 | Token cache | `Microsoft.Identity.Client.Extensions.Msal`, DPAPI-encrypted, `%LOCALAPPDATA%\MeetingAlarm\msal.cache` |
 | Client ID | Built-in default `c3e816c9-59eb-48ae-a7b8-710e8d145bb1` (FriendlyReminders). It can be overridden globally or per job (§6). A client ID is not a secret. |
@@ -121,27 +121,32 @@ Persisted in `%APPDATA%\MeetingAlarm\chats.json`, written after every change (wr
 
 Cost: 1 request per tenant per poll, plus 1 or 2 per chat that actually changed.
 
-## 6. Config (`config.json`, v2)
+## 6. Config (`config.json`)
 
-Calendars and Teams tenants are **separate lists**: one tenant can have several ICS calendars, and vice versa.
-Keys are English. (The Dutch v1 format and its auto-migration have been removed.)
+Microsoft 365 tenants and published ICS calendars are **separate lists**. A tenant entry opts in to **chats** and/or its
+**calendar** (read via Graph, so a just-planned meeting shows up within about 30 seconds, where ICS publishing can lag a lot).
+ICS remains for calendars outside the tenants. The same meeting via both routes gives one popup.
 
 ```json
 {
   "Language": "",
   "Sound": true,
-  "Meetings": { "Position": "BottomRight", "MinutesBefore": 5, "SnoozeSeconds": 60, "AutoCloseAfterMinutes": 15, "RefreshSeconds": 180 },
-  "Chats":    { "Position": "MiddleRight", "PollSeconds": 30, "ChatTypes": ["oneOnOne", "group"], "FlashSeconds": 3 },
-  "Calendars": [
-    { "Name": "Job 1", "Url": "https://…/calendar.ics", "Color": "firebrick" },
-    { "Name": "Job 1 (team)", "Url": "https://…/team.ics", "Color": "#c62828" }
+  "Meetings": { "Position": "BottomRight", "Screen": 0, "MinutesBefore": 5, "SnoozeSeconds": 60, "AutoCloseAfterMinutes": 15,
+                "RefreshSeconds": 180, "GraphRefreshSeconds": 30 },
+  "Chats":    { "Position": "MiddleRight", "Screen": 0, "PollSeconds": 30, "ChatTypes": ["oneOnOne", "group"], "FlashSeconds": 3 },
+  "Tenants": [
+    { "Name": "Job 1", "Tenant": "job1.nl", "LoginHint": "bart@job1.nl", "Color": "firebrick", "Chats": true, "Calendar": true }
   ],
-  "Teams": [
-    { "Name": "Job 1", "Tenant": "job1.nl", "LoginHint": "bart@job1.nl", "Color": "firebrick" }
+  "Calendars": [
+    { "Name": "Sports club", "Url": "https://…/calendar.ics", "Color": "teal" }
   ]
 }
 ```
 
+- `Chats` / `Calendar` (per tenant): both off by default. The calendar needs `Calendars.Read` consent. If it's missing, only the
+  "Outlook" status line says sign-in is required; chats keep working.
+- `Meetings.RefreshSeconds` applies to ICS; `Meetings.GraphRefreshSeconds` to tenant calendars.
+- Graph calendar: cancelled, declined and all-day events are skipped; the join link comes from `onlineMeeting.joinUrl`.
 - `Tenant` is a domain or tenant GUID, used in the authority `https://login.microsoftonline.com/{Tenant}`. It is always the
   **specific tenant**, never `organizations`/`common`, so each token belongs to the right tenant.
 - `ClientId` is optional in `Chats` and per Teams entry. Resolution order: entry → `Chats` → built-in constant (FriendlyReminders).

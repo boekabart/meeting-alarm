@@ -12,10 +12,11 @@ sealed class AlarmContext : ApplicationContext
     readonly WinTimer checkTimer;
     readonly WinTimer reloadTimer = new() { Interval = 500 };   // debounce: editors often write several times
     readonly FileSystemWatcher watcher;
-    readonly Dictionary<CalendarConfig, List<Meeting>> perCalendar = new();
-    // Keyed by config object (not by name): two calendars may share a name.
+    // Meetings per source: a CalendarConfig (ICS) or a TenantConfig (Graph).
+    readonly Dictionary<object, List<Meeting>> meetingsBySource = new();
+    // Keyed by config object (not by name): two calendars may share a name. Tenants use (tenant, "chats"/"calendar").
     readonly Dictionary<object, ToolStripMenuItem> statusItems = new();
-    readonly Dictionary<TeamsConfig, ToolStripMenuItem> signInItems = new();
+    readonly Dictionary<TenantConfig, ToolStripMenuItem> signInItems = new();
     readonly HashSet<object> errorReported = new();
     readonly HashSet<string> shown = new();
     readonly HashSet<string> autoSignInTried = new();
@@ -24,16 +25,16 @@ sealed class AlarmContext : ApplicationContext
 
     readonly ChatState chatState = new();
     readonly ChatPopup chatPopup = new();
-    List<ChatPoller> pollers = [];
+    List<TenantClient> clients = [];
     List<ChatRow> chatRows = [];
-    bool chatPolling;
+    bool chatPolling, graphCalendarPolling;
 
     public AlarmContext(Config cfg, bool test)
     {
         this.cfg = cfg;
         // Texts are set in ApplyConfig (the language can change live).
         miUpcoming = new ToolStripMenuItem("", null, (_, _) => ShowUpcoming());
-        miRefresh = new ToolStripMenuItem("", null, async (_, _) => { await RefreshCalendars(); await PollChats(); });
+        miRefresh = new ToolStripMenuItem("", null, async (_, _) => { await RefreshIcsCalendars(); await RefreshGraphCalendars(); await PollChats(); });
         miTestPopup = new ToolStripMenuItem("", null, (_, _) => TestPopup());
         miChatPopup = new ToolStripMenuItem("", null, (_, _) => TestChatPopup());
         miAutostart = new ToolStripMenuItem("") { Checked = Autostart.Enabled, CheckOnClick = true };
@@ -80,9 +81,20 @@ sealed class AlarmContext : ApplicationContext
         checkTimer.Tick += (_, _) => Check();
         checkTimer.Start();
 
-        _ = CalendarLoop();
-        _ = ChatLoop();
+        _ = Loop(RefreshIcsCalendars, () => Math.Max(30, cfg.Meetings.RefreshSeconds));
+        _ = Loop(RefreshGraphCalendars, () => Math.Max(15, cfg.Meetings.GraphRefreshSeconds));
+        _ = Loop(PollChats, () => Math.Max(10, cfg.Chats.PollSeconds));
         if (test) TestPopup();
+    }
+
+    async Task Loop(Func<Task> work, Func<int> intervalSeconds)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            await work();
+            try { await Task.Delay(TimeSpan.FromSeconds(intervalSeconds()), stop.Token); }
+            catch (TaskCanceledException) { break; }
+        }
     }
 
     /// <summary>Everything that follows from the config and must change along live.</summary>
@@ -106,8 +118,8 @@ sealed class AlarmContext : ApplicationContext
         chatPopup.Sound = cfg.Sound;
 
         var owner = chatPopup.Handle;   // parent for the WAM sign-in window (tray apps have no window of their own)
-        pollers = cfg.ActiveTeams
-            .Select(t => new ChatPoller(t, cfg.ClientIdFor(t), cfg.Chats.ChatTypes, chatState, () => owner))
+        clients = cfg.ActiveTenants
+            .Select(t => new TenantClient(t, cfg.ClientIdFor(t), cfg.Chats.ChatTypes, chatState, () => owner))
             .ToList();
         BuildStatusItems();
     }
@@ -123,19 +135,23 @@ sealed class AlarmContext : ApplicationContext
         signInItems.Clear();
 
         int i = 0;
+        void AddStatus(object key, string name) =>
+            menu.Items.Insert(i++, statusItems[key] = new ToolStripMenuItem(F(T.StatusNotFetched, name)) { Enabled = false });
+
         foreach (var c in cfg.ActiveCalendars)
-            menu.Items.Insert(i++, statusItems[c] =
-                new ToolStripMenuItem(F(T.StatusNotFetched, c.Name)) { Enabled = false });
-        foreach (var p in pollers)
+            AddStatus(c, c.Name);
+        foreach (var client in clients)
         {
-            menu.Items.Insert(i++, statusItems[p.Job] =
-                new ToolStripMenuItem(F(T.StatusNotFetched, TeamsName(p))) { Enabled = false });
-            var signIn = new ToolStripMenuItem(F(T.MenuSignInTo, p.Job.Name), null, async (_, _) => await SignIn(p)) { Visible = false };
-            menu.Items.Insert(i++, signInItems[p.Job] = signIn);
+            var t = client.Tenant;
+            if (t.Calendar) AddStatus((t, "calendar"), OutlookName(t));
+            if (t.Chats) AddStatus((t, "chats"), TeamsName(t));
+            var signIn = new ToolStripMenuItem(F(T.MenuSignInTo, t.Name), null, async (_, _) => await SignIn(client)) { Visible = false };
+            menu.Items.Insert(i++, signInItems[t] = signIn);
         }
     }
 
-    static string TeamsName(ChatPoller p) => $"{p.Job.Name} Teams";
+    static string TeamsName(TenantConfig t) => $"{t.Name} Teams";
+    static string OutlookName(TenantConfig t) => $"{t.Name} Outlook";
 
     void SetStatus(object key, string text)
     {
@@ -157,27 +173,20 @@ sealed class AlarmContext : ApplicationContext
             return;
         }
         cfg = fresh;
-        perCalendar.Clear();
+        meetingsBySource.Clear();
         errorReported.Clear();
         ApplyConfig();
         tray.ShowBalloonTip(3000, "Meeting Alarm", T.BalloonReloaded, ToolTipIcon.Info);
-        _ = RefreshCalendars();
+        _ = RefreshIcsCalendars();
+        _ = RefreshGraphCalendars();
         _ = PollChats();
     }
 
-    // ------------------------------------------------------------ Calendars
+    static string Shorten(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 
-    async Task CalendarLoop()
-    {
-        while (!stop.IsCancellationRequested)
-        {
-            await RefreshCalendars();
-            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(30, cfg.Meetings.RefreshSeconds)), stop.Token); }
-            catch (TaskCanceledException) { break; }
-        }
-    }
+    // ------------------------------------------------------------ Meetings
 
-    async Task RefreshCalendars()
+    async Task RefreshIcsCalendars()
     {
         foreach (var c in cfg.ActiveCalendars.ToList())
         {
@@ -191,7 +200,7 @@ sealed class AlarmContext : ApplicationContext
                 var ics = await http.GetStringAsync(c.Url, stop.Token);
                 var meetings = await Task.Run(() => IcsCalendar.Parse(c, ics));
                 if (!cfg.Calendars.Contains(c)) continue;   // config was reloaded in the meantime
-                perCalendar[c] = meetings;   // only replace on success
+                meetingsBySource[c] = meetings;   // only replace on success
                 SetStatus(c, F(T.StatusCalendarOk, c.Name, DateTime.Now, meetings.Count));
                 errorReported.Remove(c);
             }
@@ -206,12 +215,49 @@ sealed class AlarmContext : ApplicationContext
         Check();
     }
 
-    static string Shorten(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+    async Task RefreshGraphCalendars()
+    {
+        if (graphCalendarPolling) return;
+        graphCalendarPolling = true;
+        try
+        {
+            foreach (var client in clients.Where(c => c.Tenant.Calendar).ToList())
+            {
+                var t = client.Tenant;
+                var key = (t, "calendar");
+                try
+                {
+                    var meetings = await client.GetMeetings(stop.Token);
+                    if (!clients.Contains(client)) continue;   // config was reloaded in the meantime
+                    meetingsBySource[t] = meetings;
+                    SetStatus(key, F(T.StatusCalendarOk, OutlookName(t), DateTime.Now, meetings.Count));
+                    errorReported.Remove(key);
+                }
+                catch (MsalUiRequiredException)
+                {
+                    // Only the calendar waits for a sign-in (or an admin approval); chats keep running.
+                    SetStatus(key, F(T.StatusSignInRequired, OutlookName(t)));
+                    SignInNeeded(client);
+                }
+                catch (Exception e) when (!stop.IsCancellationRequested)
+                {
+                    SetStatus(key, F(T.StatusError, OutlookName(t), DateTime.Now, Shorten(e.Message, 70)));
+                    if (errorReported.Add(key))
+                        tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonCalendarFailed, OutlookName(t), Shorten(e.Message, 150)), ToolTipIcon.Warning);
+                }
+            }
+            Check();
+        }
+        finally
+        {
+            graphCalendarPolling = false;
+        }
+    }
 
     void Check()
     {
         var now = DateTime.Now;
-        foreach (var m in perCalendar.Values.SelectMany(x => x))
+        foreach (var m in meetingsBySource.Values.SelectMany(x => x))
         {
             var sec = (m.Start - now).TotalSeconds;
             if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -120 && shown.Add(m.Key))
@@ -221,32 +267,25 @@ sealed class AlarmContext : ApplicationContext
 
     void ShowUpcoming()
     {
-        var lines = perCalendar.Values.SelectMany(x => x)
+        var lines = meetingsBySource.Values.SelectMany(x => x)
             .Where(m => m.Start > DateTime.Now.AddMinutes(-5))
+            .DistinctBy(m => m.Key)
             .OrderBy(m => m.Start).Take(20)
-            .Select(m => F("{0:ddd} {0:t}   [{1}]   {2}", m.Start, m.Calendar.Name, m.Title))
+            .Select(m => F("{0:ddd} {0:t}   [{1}]   {2}", m.Start, m.CalendarName, m.Title))
             .ToList();
         MessageBox.Show(lines.Count > 0 ? string.Join("\n", lines) : T.NoMeetings, T.UpcomingTitle);
     }
 
     void TestPopup()
     {
-        var calendar = cfg.Calendars.FirstOrDefault() ?? new CalendarConfig { Name = "Test" };
-        new MeetingPopup(new Meeting(calendar, T.ExampleMeeting, DateTime.Now.AddSeconds(75),
+        var (name, color) = cfg.ActiveTenants.FirstOrDefault(t => t.Calendar) is { } t ? (t.Name, t.Color)
+            : cfg.Calendars.FirstOrDefault() is { } c ? (c.Name, c.Color)
+            : ("Test", ColorParser.Default.Name);
+        new MeetingPopup(new Meeting(name, color, T.ExampleMeeting, DateTime.Now.AddSeconds(75),
             "test-" + Guid.NewGuid(), "https://teams.microsoft.com/l/meetup-join/test"), cfg).ShowPopup();
     }
 
     // ------------------------------------------------------------ Teams chats
-
-    async Task ChatLoop()
-    {
-        while (!stop.IsCancellationRequested)
-        {
-            await PollChats();
-            try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, cfg.Chats.PollSeconds)), stop.Token); }
-            catch (TaskCanceledException) { break; }
-        }
-    }
 
     async Task PollChats()
     {
@@ -255,30 +294,33 @@ sealed class AlarmContext : ApplicationContext
         try
         {
             var all = new List<ChatRow>();
-            foreach (var p in pollers.ToList())
+            foreach (var client in clients.Where(c => c.Tenant.Chats).ToList())
             {
-                if (p.NeedsSignIn)
+                var key = (client.Tenant, "chats");
+                if (client.NeedsSignIn)
                 {
-                    all.AddRange(p.Previous);
+                    all.AddRange(client.Previous);
                     continue;
                 }
                 try
                 {
-                    all.AddRange(await p.Poll(stop.Token));
-                    SetStatus(p.Job, F(T.StatusOk, TeamsName(p), DateTime.Now));
-                    errorReported.Remove(p.Job);
+                    all.AddRange(await client.Poll(stop.Token));
+                    SetStatus(key, F(T.StatusOk, TeamsName(client.Tenant), DateTime.Now));
+                    errorReported.Remove(key);
                 }
                 catch (MsalUiRequiredException)
                 {
-                    all.AddRange(p.Previous);
-                    MustSignIn(p);
+                    all.AddRange(client.Previous);
+                    client.NeedsSignIn = true;   // pause chat polling until signed in
+                    SetStatus(key, F(T.StatusSignInRequired, TeamsName(client.Tenant)));
+                    SignInNeeded(client);
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
-                    all.AddRange(p.Previous);
-                    SetStatus(p.Job, F(T.StatusError, TeamsName(p), DateTime.Now, Shorten(e.Message, 70)));
-                    if (errorReported.Add(p.Job))
-                        tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonChatsFailed, p.Job.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
+                    all.AddRange(client.Previous);
+                    SetStatus(key, F(T.StatusError, TeamsName(client.Tenant), DateTime.Now, Shorten(e.Message, 70)));
+                    if (errorReported.Add(key))
+                        tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonChatsFailed, client.Tenant.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
                 }
             }
             chatRows = all;
@@ -290,41 +332,47 @@ sealed class AlarmContext : ApplicationContext
         }
     }
 
-    void MustSignIn(ChatPoller p)
+    // ------------------------------------------------------------ Sign-in
+
+    void SignInNeeded(TenantClient client)
     {
-        p.NeedsSignIn = true;
-        SetStatus(p.Job, F(T.StatusSignInRequired, TeamsName(p)));
-        if (signInItems.TryGetValue(p.Job, out var item)) item.Visible = true;
+        var t = client.Tenant;
+        if (signInItems.TryGetValue(t, out var item)) item.Visible = true;
 
         // The very first time, open the sign-in window right away; after that never unasked, only via the menu.
-        if (p.NeverSignedIn && autoSignInTried.Add($"{p.Job.Tenant}|{p.Job.LoginHint}"))
-            _ = SignIn(p);
-        else if (errorReported.Add(p.Job))
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInAgain, p.Job.Name), ToolTipIcon.Warning);
+        if (client.NeverSignedIn && autoSignInTried.Add($"{t.Tenant}|{t.LoginHint}"))
+            _ = SignIn(client);
+        else if (errorReported.Add((t, "signin")))
+            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInAgain, t.Name), ToolTipIcon.Warning);
     }
 
-    async Task SignIn(ChatPoller p)
+    async Task SignIn(TenantClient client)
     {
+        var t = client.Tenant;
         try
         {
-            await p.SignIn();
-            if (signInItems.TryGetValue(p.Job, out var item)) item.Visible = false;
-            errorReported.Remove(p.Job);
-            SetStatus(p.Job, F(T.StatusSignedIn, TeamsName(p)));
+            await client.SignIn();
+            if (signInItems.TryGetValue(t, out var item)) item.Visible = false;
+            errorReported.Remove((t, "signin"));
+            if (t.Chats) SetStatus((t, "chats"), F(T.StatusSignedIn, TeamsName(t)));
+            if (t.Calendar) SetStatus((t, "calendar"), F(T.StatusSignedIn, OutlookName(t)));
+            await RefreshGraphCalendars();
             await PollChats();
         }
         catch (Exception e)
         {
-            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInFailed, p.Job.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
+            tray.ShowBalloonTip(5000, "Meeting Alarm", F(T.BalloonSignInFailed, t.Name, Shorten(e.Message, 150)), ToolTipIcon.Warning);
         }
     }
+
+    // ------------------------------------------------------------ Chat popup
 
     void Seen(IReadOnlyList<ChatRow> rows)
     {
         foreach (var r in rows.Where(r => !r.Key.StartsWith("test|")))
             chatState.Ack(r.Key, r.Newest);
         var gone = rows.Select(r => r.Key).ToHashSet();
-        foreach (var p in pollers) p.Forget(gone);
+        foreach (var c in clients) c.Forget(gone);
         chatRows = chatRows.Where(r => !gone.Contains(r.Key)).ToList();
         chatPopup.ShowRows(chatRows);
     }
@@ -332,9 +380,9 @@ sealed class AlarmContext : ApplicationContext
     void TestChatPopup()
     {
         // Example row (not persisted); disappears at the next poll or with ✓.
-        var job = cfg.Teams.FirstOrDefault() ?? new TeamsConfig { Name = "Test" };
+        var tenant = cfg.Tenants.FirstOrDefault() ?? new TenantConfig { Name = "Test" };
         chatRows = [.. chatRows.Where(r => !r.Key.StartsWith("test|")),
-            new ChatRow(job, "test|example", T.ExampleColleague, 3, DateTimeOffset.Now, null)];
+            new ChatRow(tenant, "test|example", T.ExampleColleague, 3, DateTimeOffset.Now, null)];
         chatPopup.ShowRows(chatRows);
     }
 

@@ -103,8 +103,8 @@ static class Loc
         SeenTooltip = "Seen (until new messages arrive)",
         AlreadyRunning = "Meeting Alarm is already running (see the system tray).",
         AutostartQuestion = "Start Meeting Alarm automatically with Windows?",
-        ConfigCreated = "Settings file created:\n{0}\n\nFill in your ICS links, and for Teams chats your Tenant (e.g. company.com) " +
-                        "and LoginHint (your work email). Save; changes are loaded automatically.",
+        ConfigCreated = "Settings file created:\n{0}\n\nFill in each job's Tenant (e.g. company.com) and LoginHint (your work email). " +
+                        "Calendars from elsewhere can be added as ICS links. Save; changes are loaded automatically.",
         ConfigErrorAtStart = "Error in {0}:\n\n{1}",
         NoTitle = "(no title)",
         UnknownChat = "(chat)",
@@ -114,8 +114,8 @@ static class Loc
     // British English: almost the same texts; the real difference is the culture's time format (14:03 instead of 2:03 PM).
     static readonly Texts EnGb = EnUs with
     {
-        ConfigCreated = "Settings file created:\n{0}\n\nFill in your ICS links, and for Teams chats your Tenant (e.g. company.co.uk) " +
-                        "and LoginHint (your work e-mail). Save; changes are loaded automatically.",
+        ConfigCreated = "Settings file created:\n{0}\n\nFill in each job's Tenant (e.g. company.co.uk) and LoginHint (your work e-mail). " +
+                        "Calendars from elsewhere can be added as ICS links. Save; changes are loaded automatically.",
         AlreadyRunning = "Meeting Alarm is already running (see the notification area).",
     };
 
@@ -158,8 +158,8 @@ static class Loc
         SeenTooltip = "Gezien (tot er nieuwe berichten komen)",
         AlreadyRunning = "Meeting Alarm draait al (zie systeemvak).",
         AutostartQuestion = "Meeting Alarm automatisch starten met Windows?",
-        ConfigCreated = "Instellingenbestand aangemaakt:\n{0}\n\nVul je ICS-links in, en voor Teams-chats je Tenant (bv. bedrijf.nl) " +
-                        "en LoginHint (je werk-e-mail). Sla op; wijzigingen worden automatisch geladen.",
+        ConfigCreated = "Instellingenbestand aangemaakt:\n{0}\n\nVul per job de Tenant (bv. bedrijf.nl) en LoginHint (je werk-e-mail) in. " +
+                        "Agenda's van elders kun je als ICS-link toevoegen. Sla op; wijzigingen worden automatisch geladen.",
         ConfigErrorAtStart = "Fout in {0}:\n\n{1}",
         NoTitle = "(geen titel)",
         UnknownChat = "(chat)",
@@ -205,8 +205,8 @@ static class Loc
         SeenTooltip = "Sedd (tills nya meddelanden kommer)",
         AlreadyRunning = "Meeting Alarm körs redan (se meddelandefältet).",
         AutostartQuestion = "Starta Meeting Alarm automatiskt med Windows?",
-        ConfigCreated = "Inställningsfilen har skapats:\n{0}\n\nFyll i dina ICS-länkar, och för Teams-chattar din Tenant (t.ex. foretag.se) " +
-                        "och LoginHint (din jobbmejl). Spara; ändringar läses in automatiskt.",
+        ConfigCreated = "Inställningsfilen har skapats:\n{0}\n\nFyll i Tenant (t.ex. foretag.se) och LoginHint (din jobbmejl) för varje jobb. " +
+                        "Kalendrar från annat håll kan läggas till som ICS-länkar. Spara; ändringar läses in automatiskt.",
         ConfigErrorAtStart = "Fel i {0}:\n\n{1}",
         NoTitle = "(ingen rubrik)",
         UnknownChat = "(chatt)",
