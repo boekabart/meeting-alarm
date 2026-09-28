@@ -14,7 +14,7 @@ static class Placement
 
     /// <summary>
     /// Positions for a stack of windows inside the working area. Index 0 is closest to the anchor edge;
-    /// "Bottom" stacks upward, "Top" downward, "Middle" centered around the middle.
+    /// "Bottom" stacks upward, "Top" downward, "Middle" and "Center" centered around the middle.
     /// </summary>
     public static List<Point> Compute(Position pos, Rectangle area, IReadOnlyList<Size> sizes)
     {

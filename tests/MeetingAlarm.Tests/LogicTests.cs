@@ -105,3 +105,15 @@ public class TeamsLinkTests
     [InlineData("not a url", null)]
     public void ToApp(string webUrl, string? expected) => Assert.Equal(expected, TeamsLink.ToApp(webUrl));
 }
+
+public class CenterPlacementTests
+{
+    [Fact]
+    public void Center_is_centered_both_ways()
+    {
+        var p = Placement.Compute(Position.Center, new System.Drawing.Rectangle(0, 0, 1000, 800),
+            [new System.Drawing.Size(300, 100), new System.Drawing.Size(300, 100)]);
+
+        Assert.Equal([new System.Drawing.Point(350, 295), new System.Drawing.Point(350, 405)], p);
+    }
+}

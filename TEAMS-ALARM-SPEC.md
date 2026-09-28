@@ -151,7 +151,7 @@ ICS remains for calendars outside the tenants. The same meeting via both routes 
   **specific tenant**, never `organizations`/`common`, so each token belongs to the right tenant.
 - `ClientId` is optional in `Chats` and per Teams entry. Resolution order: entry → `Chats` → built-in constant (FriendlyReminders).
 - `Color`: `#rrggbb`, `#rgb`, or a CSS color name (`teal`, `rebeccapurple`, `slategrey`). Anything invalid falls back to firebrick.
-- **Positions**: `TopLeft`, `Top`, `TopRight`, `MiddleLeft`, `MiddleRight`, `BottomLeft`, `Bottom`, `BottomRight`,
+- **Positions**: `TopLeft`, `Top`, `TopRight`, `MiddleLeft`, `Center`, `MiddleRight`, `BottomLeft`, `Bottom`, `BottomRight`,
   relative to the primary screen's working area, with a 10 px margin.
 - `Language`: `en-US`, `en-GB`, `nl-NL`, `sv-SE` (or short: `nl`, `sv`, `en`). Blank means the Windows display language.
   Other variants of a language fall back to the closest one (nl-BE → nl-NL, en-AU → en-GB), and anything else falls back to en-US.

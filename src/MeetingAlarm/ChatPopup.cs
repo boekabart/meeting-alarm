@@ -68,6 +68,7 @@ sealed class ChatPopup : PopupBase
         {
             signature = current;
             Build(rows);
+            GuardClicks();   // rows may have moved under the mouse
         }
 
         if (rows.Count == 0)
@@ -138,7 +139,7 @@ sealed class ChatPopup : PopupBase
         {
             name.Cursor = Cursors.Hand;
             name.Font = new Font(name.Font, FontStyle.Bold | FontStyle.Underline);
-            name.Click += (_, _) => TeamsLink.Open(url);   // opening does not ack
+            OnClick(name, () => TeamsLink.Open(url));   // opening does not ack
         }
         text.Controls.Add(name);
 
