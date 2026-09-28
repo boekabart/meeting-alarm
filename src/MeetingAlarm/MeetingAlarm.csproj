@@ -11,6 +11,8 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- Bundle the WAM broker (msalruntime.dll) into the single-file exe -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Keep the .pdb for building/debugging, but don't put it next to the published exe -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
     <!-- No designer in use: serialization attributes on Form properties are pointless -->
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>
