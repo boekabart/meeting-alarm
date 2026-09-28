@@ -3,7 +3,7 @@ using Microsoft.Win32;
 static class Autostart
 {
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    const string ValueName = "MeetingAlarm";
+    const string ValueName = "FriendlyReminders";
 
     public static bool Enabled
     {
