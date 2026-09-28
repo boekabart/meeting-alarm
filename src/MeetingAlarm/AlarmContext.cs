@@ -258,11 +258,14 @@ sealed class AlarmContext : ApplicationContext
 
     void Check()
     {
+        // A meeting that already started still gets its popup (app just started, meeting planned late) for as long as the
+        // popup would have stayed open anyway; with "never auto-close" that's 15 minutes.
+        var lateMinutes = cfg.Meetings.AutoCloseAfterMinutes > 0 ? cfg.Meetings.AutoCloseAfterMinutes : 15;
         var now = DateTime.Now;
         foreach (var m in meetingsBySource.Values.SelectMany(x => x))
         {
             var sec = (m.Start - now).TotalSeconds;
-            if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -120 && shown.Add(m.Key))
+            if (sec <= cfg.Meetings.MinutesBefore * 60 && sec > -lateMinutes * 60 && shown.Add(m.Key))
                 new MeetingPopup(m, cfg).ShowPopup();
         }
     }
