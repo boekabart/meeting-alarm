@@ -32,7 +32,7 @@ static class IcsCalendar
                 ?.Value?.ToString();
             var link = MeetingLinks.Find(teamsUrl, ev.Location, ev.Description);
 
-            result.Add(new Meeting(calendar.Name, calendar.Color, title, occ.Period.StartTime.AsSystemLocal, ev.Uid ?? title, link,
+            result.Add(new Meeting(calendar.Name, calendar.Color, title, occ.Period.StartTime.AsUtc.ToLocalTime(), ev.Uid ?? title, link,
                 MeetingLinks.CleanLocation(ev.Location)));
         }
         return result.OrderBy(x => x.Start).ToList();
